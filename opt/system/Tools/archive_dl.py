@@ -361,6 +361,58 @@ def install(part, name, dest_dir, exts):
     return base + (" (extracted to folder)" if wrap else " (extracted)")
 
 
+def update_gamelist(dest_dir):
+    """Add to gamelist.xml the entries of the ports that ship a gameinfo.xml (cover, description...).
+    Existing fields are never overwritten. Return the number of games touched."""
+    gl = os.path.join(dest_dir, "gamelist.xml")
+    try:
+        tree = ET.parse(gl) if os.path.isfile(gl) else ET.ElementTree(ET.Element("gameList"))
+    except ET.ParseError:
+        return 0
+    root = tree.getroot()
+    games = {os.path.normpath(g.findtext("path") or ""): g for g in root.findall("game")}
+    touched = 0
+    for folder in sorted(os.listdir(dest_dir)):
+        info = os.path.join(dest_dir, folder, "gameinfo.xml")
+        if not os.path.isfile(info):
+            continue
+        try:
+            src_games = ET.parse(info).getroot().findall("game")
+        except ET.ParseError:
+            continue
+        for sg in src_games:
+            key = os.path.normpath(sg.findtext("path") or "")
+            if not os.path.isfile(os.path.join(dest_dir, key)):
+                continue
+            g = games.get(key)
+            if g is None:
+                g = ET.SubElement(root, "game")
+                games[key] = g
+            changed = False
+            for field in list(sg):
+                if not (field.text or "").strip():
+                    continue
+                if field.tag == "image" and not os.path.isfile(os.path.join(dest_dir, field.text.strip())):
+                    continue
+                cur = g.find(field.tag)
+                if cur is None:
+                    cur = ET.SubElement(g, field.tag)
+                if not (cur.text or "").strip():
+                    cur.text = field.text.strip()
+                    changed = True
+            img = g.findtext("image")
+            if img and g.find("thumbnail") is None:
+                ET.SubElement(g, "thumbnail").text = img
+                changed = True
+            touched += changed
+    if touched:
+        if os.path.isfile(gl):
+            shutil.copy2(gl, gl + ".bak")
+        ET.indent(tree, space="\t")
+        tree.write(gl, encoding="utf-8", xml_declaration=True)
+    return touched
+
+
 def install_entries(identifier, entries, system, systems, sd, gauge=False, out=print, hook=None):
     dest_dir, exts = resolve_rom_dir(system, systems, sd)
     os.makedirs(dest_dir, exist_ok=True)
@@ -396,6 +448,8 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
             errors.append(str(err))
             if not hook:
                 print(("\n" if not gauge else "") + "ERROR: %s" % err, file=sys.stderr, flush=True)
+    if ".sh" in exts:
+        update_gamelist(dest_dir)
     return dest_dir, errors
 
 
@@ -913,6 +967,8 @@ def main(argv=None):
     p.add_argument("--sd", help="SD card mount point (PC use)")
     p.add_argument("--es-cfg", default=DEFAULT_ES_CFG)
     p.add_argument("--conf", default=DEFAULT_CONF)
+    p.add_argument("--gamelist", action="store_true",
+                   help="add covers/descriptions of the installed ports to gamelist.xml (--system, default ports)")
     p.add_argument("--zip", metavar="FILE", help="work on the files inside this .zip of the item")
     p.add_argument("--match", help="regex on the file name")
     p.add_argument("--all", action="store_true")
@@ -935,6 +991,10 @@ def main(argv=None):
                 return 0
             apply_update(changed)
             print("Updated: %s" % ", ".join(n for n, _d in changed))
+            return 0
+        if args.gamelist:
+            dest, _exts = resolve_rom_dir(args.system or "ports", load_systems(args.es_cfg), args.sd)
+            print("Updated %d game(s) in %s" % (update_gamelist(dest), dest))
             return 0
         if args.search:
             for r in search_items(args.search):

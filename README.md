@@ -48,6 +48,7 @@ python3 archive_dl.py --tui --sd /media/$USER/<SD>
 python3 archive_dl.py --list-sources
 python3 archive_dl.py --search "advance wars"
 python3 archive_dl.py --update
+python3 archive_dl.py --gamelist --sd /media/SDCARD
 python3 archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "^GBC/1942 " --system gbc --sd /media/$USER/<SD>
 python3 archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
 python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
@@ -84,6 +85,8 @@ The file is listed in `.gitignore`, so git never tracks it and your keys are not
 The keys are only sent to `archive.org` hosts. They are stored in clear text, and the ROM partition ignores file permissions, so anyone with the console or the SD card can read them: never commit or share the file. If they leak, regenerate them on the same archive.org page.
 
 ## Updating
+
+**Port covers.** After installing a PortMaster port, the tool reads each port's `gameinfo.xml` and adds its cover, description, developer and genre to `/roms/ports/gamelist.xml` (existing fields are never overwritten, the previous file is kept as `gamelist.xml.bak`). Scrapers usually find nothing for ports. Run `--gamelist` to do it for ports already installed; restart EmulationStation afterwards.
 
 **Update tool...** in the menu (or `--update` on a PC) compares `archive_dl.py`, `Archive Downloader.sh`, `archive_sources.example.conf` and `archive_auth.example.conf` with the `main` branch of this repository and replaces the ones that differ. Your `archive_sources.conf` and `archive_auth.conf` are never touched, the previous script is kept as `archive_dl.py.bak`, and nothing is written if the downloaded script does not compile. Relaunch the tool afterwards. It needs Wi-Fi; it runs whatever is on `main`, so only use it if you trust the repository.
 
