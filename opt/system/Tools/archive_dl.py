@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Scarica singoli file da un item di archive.org e li installa nella cartella ROM del sistema.
+"""Download single files from an archive.org item and install them into the ROM folder of the system.
 
-Uso su PC (SD montata):
+Usage on a PC (SD card mounted):
     archive_dl.py --list-sources
-    archive_dl.py --tui --sd /media/utente/EASYROMS
-    archive_dl.py --source gba --match "advance wars" --sd /media/utente/EASYROMS
-    archive_dl.py https://archive.org/download/gba-italian-romset_202201 --system gba --sd /media/utente/EASYROMS
+    archive_dl.py --tui --sd /media/user/EASYROMS
+    archive_dl.py --source gba --match "advance wars" --sd /media/user/EASYROMS
+    archive_dl.py https://archive.org/download/gba-italian-romset_202201 --system gba --sd /media/user/EASYROMS
 
-Uso sulla console: lanciato da "Archive Downloader.sh" con i sottocomandi
-sources / files / get (output adatto a dialog).
+Usage on the console: launched by "Archive Downloader.sh" with the subcommands
+sources / files / get (dialog-friendly output).
 """
 import argparse
 import configparser
@@ -53,13 +53,13 @@ def http_open(url, headers=None):
 
 
 def parse_url(url):
-    """Ritorna (identifier, file_singolo_o_None)."""
+    """Return (identifier, single_file_or_None)."""
     u = urllib.parse.urlparse(url)
     if "archive.org" not in u.netloc:
-        raise Error("L'URL non è di archive.org: %s" % url)
+        raise Error("Not an archive.org URL: %s" % url)
     parts = [urllib.parse.unquote(p) for p in u.path.split("/") if p]
     if len(parts) < 2 or parts[0] not in ("download", "details"):
-        raise Error("URL non riconosciuto (atteso /download/<id> o /details/<id>)")
+        raise Error("Unrecognized URL (expected /download/<id> or /details/<id>)")
     single = "/".join(parts[2:]) if parts[0] == "download" and len(parts) > 2 else None
     return parts[1], single
 
@@ -70,9 +70,9 @@ def list_files(identifier):
         with http_open("https://archive.org/metadata/" + urllib.parse.quote(identifier)) as r:
             data = json.load(r)
     except (urllib.error.URLError, OSError) as e:
-        raise Error("Impossibile leggere i metadata: %s" % e)
+        raise Error("Cannot read metadata: %s" % e)
     if not data.get("files"):
-        raise Error("Item vuoto o inesistente: %s" % identifier)
+        raise Error("Empty or nonexistent item: %s" % identifier)
     out = []
     for f in data["files"]:
         name = f.get("name", "")
@@ -101,7 +101,7 @@ def md5_of(path):
 
 
 def download(identifier, entry, dest, on_progress=None):
-    """Scarica in dest (via dest.part) con resume e verifica MD5."""
+    """Download to dest (via dest.part) with resume and MD5 check."""
     url = "https://archive.org/download/%s/%s" % (
         urllib.parse.quote(identifier), urllib.parse.quote(entry["name"]))
     part = dest + ".part"
@@ -115,13 +115,13 @@ def download(identifier, entry, dest, on_progress=None):
         try:
             r = http_open(url, headers)
         except urllib.error.HTTPError as e:
-            if e.code == 416 and have:  # già completo
+            if e.code == 416 and have:  # already complete
                 break
-            raise Error("HTTP %d scaricando %s" % (e.code, entry["name"]))
+            raise Error("HTTP %d while downloading %s" % (e.code, entry["name"]))
         except (urllib.error.URLError, OSError) as e:
-            raise Error("Errore di rete: %s" % e)
+            raise Error("Network error: %s" % e)
         with r:
-            if have and r.status != 206:  # il server ignora Range: riparto da zero
+            if have and r.status != 206:  # server ignores Range: restart from zero
                 have = 0
             with open(part, "ab" if have else "wb") as f:
                 done = have
@@ -134,31 +134,31 @@ def download(identifier, entry, dest, on_progress=None):
                     if on_progress:
                         on_progress(done, total)
         if total and os.path.getsize(part) < total:
-            continue  # connessione interrotta: un secondo tentativo riprende dal .part
+            continue  # connection dropped: a second attempt resumes from the .part
         break
     if entry["md5"] and md5_of(part) != entry["md5"]:
         os.remove(part)
-        raise Error("MD5 non corrispondente per %s" % entry["name"])
+        raise Error("MD5 mismatch for %s" % entry["name"])
     return part
 
 
 # --------------------------------------------------------------------------
-# Setup / percorsi
+# Setup / paths
 # --------------------------------------------------------------------------
 def load_sources(conf_path):
     cp = configparser.ConfigParser(delimiters=("=",), interpolation=None,
                                    comment_prefixes=("#", ";"), inline_comment_prefixes=None)
     cp.optionxform = str
     if conf_path == DEFAULT_CONF and not os.path.exists(conf_path):
-        conf_path = os.path.join(HERE, "archive_sources.example.conf")  # nessun setup personale
+        conf_path = os.path.join(HERE, "archive_sources.example.conf")  # no personal setup
     if not cp.read(conf_path, encoding="utf-8"):
-        raise Error("File di setup non trovato: %s" % conf_path)
+        raise Error("Setup file not found: %s" % conf_path)
     return [(sec, name.strip(), url.strip())
             for sec in cp.sections() for name, url in cp.items(sec) if url.strip()]
 
 
 def load_systems(es_cfg):
-    """{nome: (path, [estensioni])} da es_systems.cfg."""
+    """{name: (path, [extensions])} from es_systems.cfg."""
     if not os.path.exists(es_cfg):
         return {}
     systems = {}
@@ -170,7 +170,7 @@ def load_systems(es_cfg):
 
 
 def resolve_rom_dir(system, systems, sd=None):
-    """Ritorna (cartella_destinazione, estensioni_accettate)."""
+    """Return (destination_folder, accepted_extensions)."""
     path, exts = systems.get(system, (None, []))
     folder = os.path.basename(path) if path else system
     if sd:
@@ -180,19 +180,19 @@ def resolve_rom_dir(system, systems, sd=None):
         base = os.path.join(sd, "roms") if os.path.isdir(os.path.join(sd, "roms")) else sd
         return os.path.join(base, folder), exts
     if not path:
-        raise Error("Sistema '%s' non trovato in es_systems.cfg (usa --sd su PC)" % system)
+        raise Error("System '%s' not found in es_systems.cfg (use --sd on a PC)" % system)
     return path, exts
 
 
 def install(part, name, dest_dir, exts):
-    """Sposta/estrae il file scaricato. Ritorna una descrizione."""
+    """Move/extract the downloaded file. Return a description."""
     base = os.path.basename(name)
     ext = os.path.splitext(base)[1].lower()
     final = os.path.join(dest_dir, base)
     if not exts or ext in exts or ext not in ARCHIVE_EXT:
         os.replace(part, final)
         return base
-    # archivio non accettato dall'emulatore: estrazione in una cartella temporanea
+    # archive not accepted by the emulator: extract into a temporary folder
     tmp = os.path.join(dest_dir, ".extract_" + os.path.splitext(base)[0][:40])
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
@@ -204,11 +204,11 @@ def install(part, name, dest_dir, exts):
             tool = next((t for t in ("7z", "7za", "7zr") if shutil.which(t)), None)
             if not tool:
                 os.replace(part, final)
-                raise Error("%s non accettato dall'emulatore e 7z non disponibile: lasciato archiviato" % base)
+                raise Error("%s not accepted by the emulator and 7z is not available: left archived" % base)
             subprocess.run([tool, "x", "-y", "-o" + tmp, part],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         entries = os.listdir(tmp)
-        # più voci in radice (es. giochi ScummVM): cartella col nome dell'archivio
+        # several top-level entries (e.g. ScummVM games): folder named after the archive
         target = dest_dir if len(entries) == 1 else os.path.join(dest_dir, os.path.splitext(base)[0])
         os.makedirs(target, exist_ok=True)
         for name in entries if len(entries) == 1 else [os.path.join(tmp, n) for n in entries]:
@@ -219,11 +219,11 @@ def install(part, name, dest_dir, exts):
             else:
                 os.replace(src, dst)
     except (zipfile.BadZipFile, subprocess.CalledProcessError, OSError) as e:
-        raise Error("Estrazione fallita per %s: %s" % (base, e))
+        raise Error("Extraction failed for %s: %s" % (base, e))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     os.remove(part)
-    # ScummVM: ES mostra solo i .scummvm, che contengono il nome della cartella del gioco
+    # ScummVM: ES only lists .scummvm files, which contain the game folder name
     if ".scummvm" in exts:
         games = [os.path.basename(target)] if len(entries) > 1 else \
                 [n for n in entries if os.path.isdir(os.path.join(dest_dir, n))]
@@ -232,7 +232,7 @@ def install(part, name, dest_dir, exts):
             if not os.path.exists(shortcut):
                 with open(shortcut, "w", encoding="utf-8") as fh:
                     fh.write(g + "\n")
-    return base + (" (estratto in cartella)" if len(entries) > 1 else " (estratto)")
+    return base + (" (extracted to folder)" if len(entries) > 1 else " (extracted)")
 
 
 def install_entries(identifier, entries, system, systems, sd, gauge=False, out=print, hook=None):
@@ -245,9 +245,9 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         label = "[%d/%d] %s" % (i + 1, len(entries), base)
         if e["md5"] and os.path.exists(final) and md5_of(final) == e["md5"]:
             if hook:
-                hook((i + 1) * 100 // len(entries), label + " (già presente)", e["size"], e["size"])
+                hook((i + 1) * 100 // len(entries), label + " (already present)", e["size"], e["size"])
             else:
-                out("%s: già presente" % label)
+                out("%s: already present" % label)
             continue
 
         def progress(done, total, i=i, label=label):
@@ -267,12 +267,12 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         except Error as err:
             errors.append(str(err))
             if not hook:
-                print(("\n" if not gauge else "") + "ERRORE: %s" % err, file=sys.stderr, flush=True)
+                print(("\n" if not gauge else "") + "ERROR: %s" % err, file=sys.stderr, flush=True)
     return dest_dir, errors
 
 
 # --------------------------------------------------------------------------
-# Selezione interattiva (PC)
+# Interactive selection (PC)
 # --------------------------------------------------------------------------
 def parse_selection(text, n):
     chosen = set()
@@ -294,7 +294,7 @@ def select_interactive(files):
     while True:
         for i, f in enumerate(view, 1):
             print("%4d) %s  (%s)" % (i, f["name"], human(f["size"])))
-        ans = input("\nNumeri (es. 1-3,7), /testo per filtrare, a=tutti, r=reset, q=esci: ").strip()
+        ans = input("\nNumbers (e.g. 1-3,7), /text to filter, a=all, r=reset, q=quit: ").strip()
         if ans == "q":
             return []
         if ans == "a":
@@ -308,14 +308,14 @@ def select_interactive(files):
             try:
                 return [view[i - 1] for i in parse_selection(ans, len(view))]
             except ValueError as e:
-                print("Selezione non valida: %s" % e)
+                print("Invalid selection: %s" % e)
 
 
 # --------------------------------------------------------------------------
-# TUI (curses): solo frecce/PgUp/PgDn, Invio ed Esc, quindi usabile col gamepad
+# TUI (curses): arrows/PgUp/PgDn, Enter and Esc only, so it is usable with a gamepad
 # --------------------------------------------------------------------------
 OSK = "/opt/inttools/osk.py"
-EXIT_INSTALLED = 20  # codice di uscita della TUI: qualcosa è stato installato
+EXIT_INSTALLED = 20  # TUI exit code: something was installed
 
 
 def _put(win, y, x, text, attr=0):
@@ -357,7 +357,7 @@ def _move(k, cur, n, page):
     return cur
 
 
-def tui_menu(win, title, labels, footer="Su/Giù scegli  Invio ok  Esc indietro"):
+def tui_menu(win, title, labels, footer="Up/Down choose  Enter ok  Esc back"):
     import curses
     cur = top = 0
     while True:
@@ -384,7 +384,7 @@ def tui_menu(win, title, labels, footer="Su/Giù scegli  Invio ok  Esc indietro"
 
 
 def tui_message(win, title, lines, wait=True):
-    _frame(win, title, "Premi un tasto" if wait else "")
+    _frame(win, title, "Press any key" if wait else "")
     h, _w = win.getmaxyx()
     for i, line in enumerate(lines[:h - 3]):
         _put(win, 2 + i, 1, line)
@@ -394,7 +394,7 @@ def tui_message(win, title, lines, wait=True):
 
 
 def tui_text(win, prompt):
-    """Input testuale da tastiera. Ritorna None se annullato."""
+    """Keyboard text input. Return None if cancelled."""
     import curses
     buf = ""
     curses.curs_set(1)
@@ -420,7 +420,7 @@ def tui_text(win, prompt):
 
 def tui_ask_url(win):
     import curses
-    if os.path.exists(OSK):  # tastiera su schermo (gamepad)
+    if os.path.exists(OSK):  # on-screen keyboard (gamepad)
         curses.def_prog_mode()
         curses.endwin()
         res = subprocess.run([sys.executable, OSK, "URL archive.org", "URL"],
@@ -433,8 +433,8 @@ def tui_ask_url(win):
 
 
 def tui_checklist(win, title, files, chosen=None):
-    """Ritorna la lista dei file scelti, oppure None per tornare indietro.
-    Invio/Spazio = spunta, d (X sul gamepad) = scarica, a (Y) = tutti."""
+    """Return the list of chosen files, or None to go back.
+    Enter/Space = toggle, d (X on the gamepad) = download, a (Y) = all."""
     import curses
     chosen = set() if chosen is None else chosen
     flt = ""
@@ -446,9 +446,9 @@ def tui_checklist(win, title, files, chosen=None):
         cur = min(cur, n - 1)
         total = sum(f["size"] for f in files if f["name"] in chosen)
         _, w = win.getmaxyx()
-        head = "%s%s  [%d sel, %s / tot %s]" % (title, " /" + flt if flt else "", len(chosen), human(total),
+        head = "%s%s  [%d sel, %s / total %s]" % (title, " /" + flt if flt else "", len(chosen), human(total),
                                               human(sum(f["size"] for f in files)))
-        _frame(win, head, note or "B=spunta  X=scarica  Y=tutti  A=indietro")
+        _frame(win, head, note or "B=toggle  X=download  Y=all  A=back")
         note = ""
         h, _w = win.getmaxyx()
         rows = h - 2
@@ -472,12 +472,12 @@ def tui_checklist(win, title, files, chosen=None):
         elif k in (ord("d"), ord("D")):
             if chosen:
                 return [f for f in files if f["name"] in chosen]
-            note = "Nessun file spuntato"
+            note = "No file selected"
         elif k in (ord("a"), ord("A")):
             names = {f["name"] for f in view}
             chosen = chosen - names if names <= chosen else chosen | names
         elif k == ord("/"):
-            new = tui_text(win, "Filtro: ")
+            new = tui_text(win, "Filter: ")
             if new is not None:
                 flt, cur, top = new, 0, 0
         elif _is_back(k):
@@ -490,7 +490,7 @@ def tui_checklist(win, title, files, chosen=None):
 
 
 def tui_confirm(win, entries, system, systems, sd):
-    """Riepilogo prima del download. True = procedi, False = annulla."""
+    """Summary before downloading. True = proceed, False = cancel."""
     import curses
     total = sum(e["size"] for e in entries)
     try:
@@ -501,9 +501,9 @@ def tui_confirm(win, entries, system, systems, sd):
         free = human(shutil.disk_usage(probe).free)
     except (Error, OSError):
         dest, free = "?", "?"
-    lines = ["File: %d" % len(entries), "Dimensione totale: %s" % human(total),
-             "Spazio libero: %s" % free, "Sistema: %s" % system, "Cartella: %s" % dest]
-    _frame(win, "Conferma download", "B=scarica  A=annulla")
+    lines = ["File: %d" % len(entries), "Total size: %s" % human(total),
+             "Free space: %s" % free, "System: %s" % system, "Folder: %s" % dest]
+    _frame(win, "Confirm download", "B=download  A=cancel")
     for i, line in enumerate(lines):
         _put(win, 2 + i, 1, line)
     win.refresh()
@@ -524,41 +524,41 @@ def tui_download(win, identifier, entries, system, systems, sd):
         h, w = win.getmaxyx()
         _frame(win, "Download", "")
         _put(win, 2, 1, label)
-        _put(win, 3, 1, "File: %s / %s   Totale: %s" % (human(done), human(total), human(grand)))
+        _put(win, 3, 1, "File: %s / %s   Total: %s" % (human(done), human(total), human(grand)))
         bar = max(10, w - 10)
         fill = bar * pct // 100
         _put(win, 4, 1, "[" + "#" * fill + "-" * (bar - fill) + "] %3d%%" % pct)
         win.refresh()
 
     try:
-        hook(0, "Avvio...")
+        hook(0, "Starting...")
         dest, errors = install_entries(identifier, entries, system, systems, sd, hook=hook)
     except Error as e:
-        tui_message(win, "Errore", [str(e)])
+        tui_message(win, "Error", [str(e)])
         return False
-    lines = ["Cartella: " + dest] + ["ERRORE: " + e for e in errors[:6]]
+    lines = ["Folder: " + dest] + ["ERROR: " + e for e in errors[:6]]
     if not errors:
-        lines.insert(0, "Completato (%d file)." % len(entries))
-    tui_message(win, "Risultato", lines)
+        lines.insert(0, "Completed (%d files)." % len(entries))
+    tui_message(win, "Result", lines)
     return len(errors) < len(entries)
 
 
 DISCLAIMER = [
-    "ATTENZIONE",
+    "WARNING",
     "",
-    "Questo strumento scarica file da archive.org.",
-    "Usalo solo per contenuti di cui possiedi i diritti",
-    "(es. copie di backup di giochi che possiedi) o che",
-    "sono di pubblico dominio / homebrew.",
+    "This tool downloads files from archive.org.",
+    "Use it only for content you have the rights to",
+    "(e.g. backups of games you own) or that is",
+    "public domain / homebrew.",
     "",
-    "Sei l'unico responsabile di cio' che scarichi.",
+    "You are solely responsible for what you download.",
 ]
 
 
 def tui_disclaimer(win):
-    """Avviso iniziale. True = accettato, False = rifiutato."""
+    """Initial notice. True = accepted, False = declined."""
     import curses
-    _frame(win, "Disclaimer", "B=accetto  A=esci")
+    _frame(win, "Disclaimer", "B=accept  A=quit")
     h, _w = win.getmaxyx()
     for i, line in enumerate(DISCLAIMER[:h - 3]):
         _put(win, 2 + i, 1, line, curses.A_BOLD if i == 0 else 0)
@@ -584,8 +584,8 @@ def _tui_main(win, args):
     systems = load_systems(args.es_cfg)
     installed = False
     while True:
-        labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Altro URL..."]
-        i = tui_menu(win, "Archive Downloader - sorgente", labels, "Su/Giù  Invio=scegli  Esc=esci")
+        labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Other URL..."]
+        i = tui_menu(win, "Archive Downloader - source", labels, "Up/Down  Enter=choose  Esc=quit")
         if i is None:
             return EXIT_INSTALLED if installed else 0
         if i < len(sources):
@@ -595,15 +595,15 @@ def _tui_main(win, args):
             if not url:
                 continue
             names = sorted(systems)
-            j = tui_menu(win, "Sistema di destinazione", ["(deduci dall'estensione)"] + names)
+            j = tui_menu(win, "Destination system", ["(deduce from extension)"] + names)
             if j is None:
                 continue
             system = names[j - 1] if j else None
-        tui_message(win, "Archive Downloader", ["Lettura elenco file..."], wait=False)
+        tui_message(win, "Archive Downloader", ["Reading file list..."], wait=False)
         try:
             identifier, files = fetch_files(url)
         except Error as e:
-            tui_message(win, "Errore", [str(e)])
+            tui_message(win, "Error", [str(e)])
             continue
         chosen = set()
         while True:
@@ -613,7 +613,7 @@ def _tui_main(win, args):
             try:
                 target = system or deduce_system(entries)
             except Error as e:
-                tui_message(win, "Errore", [str(e)])
+                tui_message(win, "Error", [str(e)])
                 break
             if tui_confirm(win, entries, target, systems, args.sd):
                 installed |= tui_download(win, identifier, entries, target, systems, args.sd)
@@ -635,15 +635,15 @@ def resolve_url(args):
     if args.source:
         sources = [s for s in load_sources(args.conf) if s[0] == args.source]
         if not sources:
-            raise Error("Nessuna sorgente per il sistema '%s' in %s" % (args.source, args.conf))
+            raise Error("No source for system '%s' in %s" % (args.source, args.conf))
         if len(sources) == 1:
             return sources[0][2], args.source
-        print("Sorgenti per %s:" % args.source)
+        print("Sources for %s:" % args.source)
         for i, (_s, name, url) in enumerate(sources, 1):
             print("%3d) %s  %s" % (i, name, url))
-        return sources[int(input("Scegli: ")) - 1][2], args.source
+        return sources[int(input("Choose: ")) - 1][2], args.source
     if not args.url:
-        raise Error("Specifica un URL o --source")
+        raise Error("Specify a URL or --source")
     return args.url, args.system
 
 
@@ -660,7 +660,7 @@ def deduce_system(entries):
     guessed = {EXT_TO_SYSTEM.get(os.path.splitext(f["name"])[1].lower()) for f in entries}
     guessed.discard(None)
     if len(guessed) != 1:
-        raise Error("Impossibile dedurre il sistema: usa --system o --source")
+        raise Error("Cannot deduce the system: use --system or --source")
     return guessed.pop()
 
 
@@ -679,19 +679,19 @@ def pick_entries(files, args):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("cmd_or_url", nargs="?", help="URL archive.org, oppure sources/files/get (uso console)")
+    p.add_argument("cmd_or_url", nargs="?", help="archive.org URL, or sources/files/get (console use)")
     p.add_argument("url2", nargs="?", help=argparse.SUPPRESS)
-    p.add_argument("--source", help="sistema definito in archive_sources.conf")
+    p.add_argument("--source", help="system defined in archive_sources.conf")
     p.add_argument("--list-sources", action="store_true")
-    p.add_argument("--system", help="sistema di destinazione (nome in es_systems.cfg)")
-    p.add_argument("--sd", help="mountpoint della SD (uso su PC)")
+    p.add_argument("--system", help="destination system (name in es_systems.cfg)")
+    p.add_argument("--sd", help="SD card mount point (PC use)")
     p.add_argument("--es-cfg", default=DEFAULT_ES_CFG)
     p.add_argument("--conf", default=DEFAULT_CONF)
-    p.add_argument("--match", help="regex sul nome file")
+    p.add_argument("--match", help="regex on the file name")
     p.add_argument("--all", action="store_true")
-    p.add_argument("--files-from", help="file con un nome per riga (selezione già fatta)")
-    p.add_argument("--tui", action="store_true", help="interfaccia a schermo intero (curses)")
-    p.add_argument("--gauge", action="store_true", help="output per dialog --gauge")
+    p.add_argument("--files-from", help="file with one name per line (selection already made)")
+    p.add_argument("--tui", action="store_true", help="full-screen interface (curses)")
+    p.add_argument("--gauge", action="store_true", help="output for dialog --gauge")
     args = p.parse_args(argv)
 
     cmd = args.cmd_or_url if args.cmd_or_url in ("sources", "files", "get") else None
@@ -713,20 +713,20 @@ def main(argv=None):
 
         entries = pick_entries(files, args)
         if not entries:
-            print("Nessun file selezionato.")
+            print("No file selected.")
             return 0
         if not system:
             system = deduce_system(entries)
         systems = load_systems(args.es_cfg)
         dest, errors = install_entries(identifier, entries, system, systems, args.sd, args.gauge)
         if not args.gauge:
-            print("Cartella: %s" % dest)
+            print("Folder: %s" % dest)
         return 1 if errors else 0
     except Error as e:
-        print("ERRORE: %s" % e, file=sys.stderr)
+        print("ERROR: %s" % e, file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
-        print("\nInterrotto (i download parziali restano come .part e riprendono al rilancio).")
+        print("\nInterrupted (partial downloads stay as .part and resume on relaunch).")
         return 130
 
 

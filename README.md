@@ -1,41 +1,41 @@
-# Archive Downloader - Guida rapida
+# Archive Downloader for R36S / dArkOS
 
-Scarica singoli file da archive.org e li installa nella cartella ROM del sistema giusto.
-Funziona dalla console (con Wi-Fi) e dal PC con la SD inserita.
+Downloads single files from archive.org and installs them into the ROM folder of the right system.
+Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 3 standard library only.
 
-**Disclaimer:** usalo solo per contenuti di cui possiedi i diritti (backup di giochi che possiedi, pubblico dominio, homebrew). Sei l'unico responsabile di ciò che scarichi. All'avvio il tool mostra un avviso da accettare con **B** (**A** per uscire).
+**Disclaimer:** use it only for content you have the rights to (backups of games you own, public domain, homebrew). You are solely responsible for what you download. The tool shows a notice at startup that you must accept with **B** (**A** to quit).
 
-## Dalla console (R36S)
+## On the console (R36S)
 
-1. Attiva il Wi-Fi.
-2. In EmulationStation: **Tools → Archive Downloader** e accetta il disclaimer con **B**.
-3. Scegli una sorgente dalla lista (es. `[gba] Romset italiano`), oppure **Altro URL...** per un link tuo.
-4. Spunta i file da scaricare e premi **X**.
-5. Controlla il riepilogo (numero di file, dimensione totale, spazio libero) e premi **B** per scaricare, **A** per annullare.
-6. A fine download esci con **A**: EmulationStation si riavvia e i giochi compaiono.
+1. Turn Wi-Fi on.
+2. In EmulationStation: **Tools → Archive Downloader**, then accept the disclaimer with **B**.
+3. Pick a source from the list, or **Other URL...** for your own link.
+4. Tick the files to download and press **X**.
+5. Check the summary (number of files, total size, free space) and press **B** to download or **A** to cancel.
+6. When done, quit with **A**: EmulationStation restarts and the games show up.
 
-### Tasti
+### Buttons
 
-| Tasto | Azione |
+| Button | Action |
 |---|---|
-| Su / Giù | muove il cursore |
-| Sinistra / Destra | pagina precedente / successiva |
-| B | spunta il file (nei menu: conferma) |
-| X | scarica i file spuntati |
-| Y | spunta / deseleziona tutti |
-| A | indietro |
-| `/` (tastiera) | filtra per nome |
+| Up / Down | move the cursor |
+| Left / Right | previous / next page |
+| B | tick the file (in menus: confirm) |
+| X | download the ticked files |
+| Y | tick / untick all |
+| A | back |
+| `/` (keyboard) | filter by name |
 
-La riga in alto mostra `[file scelti, dimensione scelta / totale della sezione]`.
+The top line shows `[files chosen, size chosen / total size of the list]`.
 
-### Cosa succede ai file
+### What happens to the files
 
-- Se il sistema accetta il formato (es. `.zip`, `.chd`), il file viene copiato così com'è.
-- Altrimenti l'archivio viene estratto; se contiene più file, in una cartella col suo nome.
-- ScummVM: viene creato anche il file `<cartella>.scummvm`.
-- Il download riprende da dove si è interrotto e viene verificato con l'MD5. I file già presenti vengono saltati.
+- If the system accepts the format (e.g. `.zip`, `.chd`), the file is copied as is.
+- Otherwise the archive is extracted; if it holds several files, into a folder named after it.
+- ScummVM: the `<folder>.scummvm` file is created too.
+- Downloads resume where they stopped and are verified with MD5. Files already present are skipped.
 
-## Dal PC
+## On a PC
 
 ```
 python3 archive_dl.py --tui --sd /media/$USER/<SD>
@@ -44,30 +44,30 @@ python3 archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
 python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 ```
 
-Serve solo Python 3. `--sd` è il punto di mount della SD; la cartella ROM è letta da `es_systems.cfg` (`--es-cfg` per indicarne un altro).
+`--sd` is the mount point of the SD card; the ROM folder is read from `es_systems.cfg` (`--es-cfg` to point to another one).
 
-## Aggiungere una sorgente
+## Adding a source
 
-Il repo contiene solo `archive_sources.example.conf`. Copialo in `archive_sources.conf` (stessa cartella; non viene versionato) e modificalo: se esiste, il tool usa quello. Sulla console la cartella è `/opt/system/Tools/`:
+The repo only ships `archive_sources.example.conf`. Copy it to `archive_sources.conf` (same folder; it is not versioned) and edit it: if it exists, the tool uses that. On the console the folder is `/opt/system/Tools/`:
 
 ```ini
 [nes]
-Nome visibile = https://archive.org/details/identificativo-item
+Display name = https://archive.org/details/item-identifier
 ```
 
-- La sezione è il nome del sistema in `es_systems.cfg` (`gba`, `psx`, `megadrive`, `ports`, `scummvm`...).
-- Accettati `/details/<id>`, `/download/<id>` e `/download/<id>/<file>` (file singolo).
-- Le righe con `#` sono commenti.
-- Verifica con `python3 archive_dl.py --list-sources`.
+- The section is the system name in `es_systems.cfg` (`gba`, `psx`, `megadrive`, `ports`, `scummvm`...).
+- Accepted: `/details/<id>`, `/download/<id>` and `/download/<id>/<file>` (single file).
+- Lines starting with `#` are comments.
+- Check with `python3 archive_dl.py --list-sources`.
 
-## Problemi comuni
+## Troubleshooting
 
-- **"python3 non è installato"**: il tool richiede Python 3 sulla console.
-- **Errore di rete**: controlla il Wi-Fi; riavviando il download riparte dal `.part`.
-- **MD5 non corrispondente**: il file viene scartato, riprova.
-- **Gioco non visibile**: riavvia EmulationStation o controlla di aver scaricato nel sistema giusto.
-- Alcuni item sono enormi (decine di GB): guarda la dimensione nel riepilogo prima di confermare.
+- **"python3 is not installed"**: the tool needs Python 3 on the console.
+- **Network error**: check Wi-Fi; relaunching the download resumes from the `.part` file.
+- **MD5 mismatch**: the file is discarded, try again.
+- **Game not showing**: restart EmulationStation, or check you downloaded into the right system.
+- Some items are huge (tens of GB): check the size in the summary before confirming.
 
-## Licenza
+## License
 
-MIT, vedi il file `LICENSE`.
+MIT, see the `LICENSE` file.

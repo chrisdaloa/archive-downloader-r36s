@@ -2,8 +2,8 @@
 
 # =======================================
 # Archive Downloader
-# Scarica singoli file da archive.org nella cartella ROM del sistema
-# Sorgenti preimpostate: archive_sources.conf
+# Download single files from archive.org into the system's ROM folder
+# Preset sources: archive_sources.conf
 # =======================================
 
 # =======================================================
@@ -90,7 +90,7 @@ Msg() {
 # Dependencies
 # =======================================================
 if ! command -v python3 >/dev/null 2>&1; then
-    Msg "Errore" "python3 non è installato.\n\nImpossibile continuare."
+    Msg "Error" "python3 is not installed.\n\nCannot continue."
     Exit_Menu
 fi
 
@@ -109,9 +109,9 @@ Main_Menu() {
 export SDL_GAMECONTROLLERCONFIG_FILE="/opt/inttools/gamecontrollerdb.txt"
 chmod 666 /dev/uinput
 cp /opt/inttools/keys.gptk "$TMP_KEYS"
-# B = conferma/spunta, A = indietro
+# B = confirm/toggle, A = back
 sed -i 's/^b = .*/b = enter/; s/^a = .*/a = esc/' "$TMP_KEYS"
-# X = scarica (d), Y = seleziona tutti (a): nella TUI sono le scorciatoie della lista
+# X = download (d), Y = select all (a): list shortcuts in the TUI
 sed -i 's/^x = .*/x = d/; s/^y = .*/y = a/' "$TMP_KEYS"
 Start_GPTKeyb
 
