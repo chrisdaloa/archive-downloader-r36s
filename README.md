@@ -5,6 +5,20 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 
 **Disclaimer:** use it only for content you have the rights to (backups of games you own, public domain, homebrew). You are solely responsible for what you download. The tool shows a notice at startup that you must accept with **B** (**A** to quit).
 
+## Installing on the SD card
+
+The console's ROM partition (the big exFAT one, usually labelled `EASYROMS`) has a `tools` folder: it is what EmulationStation shows under **Tools**. It is `/opt/system/Tools/` on the console.
+
+1. Power off the console and put its SD card in the PC (or use a card reader).
+2. Download this repository (green **Code** button → **Download ZIP**, or `git clone`).
+3. Copy these files from `opt/system/Tools/` into the `tools` folder of the ROM partition:
+   - `Archive Downloader.sh`
+   - `archive_dl.py`
+   - `archive_sources.example.conf` (optional but handy: rename a copy to `archive_sources.conf` to edit the source list)
+4. Eject the card, put it back, boot the console. **Tools → Archive Downloader** appears (if not, restart EmulationStation).
+
+Once installed, **Update tool...** keeps the files current from this repository, so you only need to copy them by hand the first time. The console needs Python 3 (already included in dArkOS) and Wi-Fi.
+
 ## On the console (R36S)
 
 1. Turn Wi-Fi on.

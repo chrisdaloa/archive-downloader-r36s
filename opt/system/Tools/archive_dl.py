@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.4.0"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.4.1"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
@@ -575,19 +575,22 @@ def _put(win, y, x, text, attr=0):
             pass
 
 
+MARQUEE_MS = 120  # one character per tick
+
+
 def marquee(text, width, tick):
     """The part of a too-long text to show at this tick: rests at the start, scrolls to the end, rests, restarts."""
     over = len(text) - width
     if over <= 0:
         return text
-    pause = 4
+    pause = 8  # ticks resting at each end (about a second)
     off = tick % (over + 2 * pause)
     return text[min(max(off - pause, 0), over):][:width]
 
 
 def _getch(win, scrolling):
-    """getch(); with scrolling=True it gives up after 300 ms and returns -1 so the caller can animate."""
-    win.timeout(300 if scrolling else -1)
+    """getch(); with scrolling=True it gives up after MARQUEE_MS and returns -1 so the caller can animate."""
+    win.timeout(MARQUEE_MS if scrolling else -1)
     k = win.getch()
     win.timeout(-1)
     return k
