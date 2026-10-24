@@ -149,6 +149,8 @@ def load_sources(conf_path):
     cp = configparser.ConfigParser(delimiters=("=",), interpolation=None,
                                    comment_prefixes=("#", ";"), inline_comment_prefixes=None)
     cp.optionxform = str
+    if conf_path == DEFAULT_CONF and not os.path.exists(conf_path):
+        conf_path = os.path.join(HERE, "archive_sources.example.conf")  # nessun setup personale
     if not cp.read(conf_path, encoding="utf-8"):
         raise Error("File di setup non trovato: %s" % conf_path)
     return [(sec, name.strip(), url.strip())

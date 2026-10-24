@@ -48,7 +48,7 @@ Serve solo Python 3. `--sd` è il punto di mount della SD; la cartella ROM è le
 
 ## Aggiungere una sorgente
 
-Modifica `archive_sources.conf` (sulla console: `/opt/system/Tools/`):
+Il repo contiene solo `archive_sources.example.conf`. Copialo in `archive_sources.conf` (stessa cartella; non viene versionato) e modificalo: se esiste, il tool usa quello. Sulla console la cartella è `/opt/system/Tools/`:
 
 ```ini
 [nes]
