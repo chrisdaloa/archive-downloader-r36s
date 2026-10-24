@@ -3,3 +3,4 @@ __pycache__/
 *.bak
 *.new
 opt/system/Tools/archive_auth.conf
+opt/system/Tools/cache/

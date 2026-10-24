@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.1.0"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.3.0"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
@@ -121,6 +121,10 @@ def list_zip_members(identifier, zipname):
     try:
         with http_open(url, timeout=120) as r:
             page = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise Error("Login required for %s: add your archive.org keys to archive_auth.conf" % zipname)
+        raise Error("Cannot read the zip index: %s" % e)
     except (urllib.error.URLError, OSError) as e:
         raise Error("Cannot read the zip index: %s" % e)
     out = [{"name": html.unescape(name), "size": int(size), "md5": "",
@@ -130,6 +134,58 @@ def list_zip_members(identifier, zipname):
         raise Error("No index available for %s" % zipname)
     out.sort(key=lambda x: x["name"].lower())
     return out
+
+
+DAT_MAX = 64 << 20
+CACHE_DIR = os.path.join(HERE, "cache")
+
+
+def find_dat(files):
+    """The ClrMamePro/Logiqx .dat shipped with an item (it maps romset names to full titles), or None."""
+    dats = [f for f in files if f["name"].lower().endswith(".dat") and 0 < f["size"] <= DAT_MAX]
+    return max(dats, key=lambda f: f["size"], default=None)
+
+
+def parse_dat(fh):
+    """{zip name (lowercase): "Full title (year, manufacturer)"} from a Logiqx XML .dat, in constant memory."""
+    titles = {}
+    for _ev, el in ET.iterparse(fh, events=("end",)):
+        if el.tag in ("game", "machine"):
+            name = el.get("name")
+            desc = (el.findtext("description") or "").strip()
+            if name and desc:
+                extra = ", ".join(x for x in ((el.findtext("year") or "").strip(),
+                                              (el.findtext("manufacturer") or "").strip()) if x and x != "<unknown>")
+                titles[name.lower()] = desc + (" (%s)" % extra if extra else "")
+            el.clear()
+    return titles
+
+
+def load_titles(identifier, files):
+    """Full game names for the romsets of an item, from its .dat (downloaded once, then cached). {} if none."""
+    dat = find_dat(files)
+    if not dat:
+        return {}
+    cache = os.path.join(CACHE_DIR, "%s_%s.tsv" % (re.sub(r"\W+", "_", identifier), dat["md5"] or dat["size"]))
+    try:
+        with open(cache, encoding="utf-8") as fh:
+            return dict(line.rstrip("\n").split("\t", 1) for line in fh if "\t" in line)
+    except OSError:
+        pass
+    url = "https://archive.org/download/%s/%s" % (urllib.parse.quote(identifier), urllib.parse.quote(dat["name"]))
+    try:
+        with http_open(url, timeout=120) as r:
+            titles = parse_dat(r)
+    except (urllib.error.URLError, OSError, ET.ParseError):
+        return {}
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(cache, "w", encoding="utf-8") as fh:
+            for k, v in titles.items():
+                fh.write("%s\t%s\n" % (k, v.replace("\t", " ").replace("\n", " ")))
+    except OSError:
+        pass
+    return titles
 
 
 def search_items(query, rows=50):
@@ -660,7 +716,7 @@ def tui_checklist(win, title, files, chosen=None):
     cur = top = 0
     note = ""
     while True:
-        view = [f for f in files if flt.lower() in f["name"].lower()]
+        view = [f for f in files if flt.lower() in f["name"].lower() or flt.lower() in f.get("title", "").lower()]
         n = max(len(view), 1)
         cur = min(cur, n - 1)
         total = sum(f["size"] for f in files if f["name"] in chosen)
@@ -680,7 +736,7 @@ def tui_checklist(win, title, files, chosen=None):
             if i >= len(view):
                 break
             f = view[i]
-            label = "[%s] %s (%s)" % ("x" if f["name"] in chosen else " ", f["name"], human(f["size"]))
+            label = "[%s] %s (%s)" % ("x" if f["name"] in chosen else " ", f.get("title") or f["name"], human(f["size"]))
             _put(win, 1 + r, 0, ("> " if i == cur else "  ") + label,
                  curses.A_REVERSE if i == cur else 0)
         win.refresh()
@@ -712,14 +768,37 @@ def tui_checklist(win, title, files, chosen=None):
             cur = _move(k, cur, n, rows)
 
 
-def tui_zip_members(win, identifier, zipfile_entry):
-    """Browse the files inside a zip of the item. Return the chosen members, or None to go back."""
+BIG_ZIP = 1 << 30  # a single .zip at least this big (and most of the item) is browsed instead of listed
+
+
+def dominant_zip(files):
+    """The one huge .zip that makes up most of the item (e.g. a 19 GB romset), or None."""
+    zips = [f for f in files if f["name"].lower().endswith(".zip") and "/" not in f["name"]]
+    total = sum(f["size"] for f in files)
+    big = max(zips, key=lambda f: f["size"], default=None)
+    if big and big["size"] >= BIG_ZIP and big["size"] >= total * 0.9:
+        return big
+    return None
+
+
+def tui_zip_members(win, identifier, zipfile_entry, files=()):
+    """Browse the files inside a zip of the item. Return the chosen members, or None to go back.
+    Romset names (e.g. 1941.zip) get their full title from the item's .dat, when it has one."""
     tui_message(win, "Archive Downloader", ["Reading zip index..."], wait=False)
     try:
         members = list_zip_members(identifier, zipfile_entry["name"])
     except Error as e:
         tui_message(win, "Error", [str(e)])
         return None
+    dat = find_dat(files)
+    if dat:
+        tui_message(win, "Archive Downloader", ["Reading game names...", "(first time only: %s)" % human(dat["size"])],
+                    wait=False)
+        titles = load_titles(identifier, files)
+        for m in members:
+            t = titles.get(os.path.splitext(os.path.basename(m["name"]))[0].lower())
+            if t:
+                m["title"] = t
     return tui_checklist(win, "Zip: %s" % zipfile_entry["name"], members)
 
 
@@ -888,14 +967,20 @@ def _tui_main(win, args):
             tui_message(win, "Error", [str(e)])
             continue
         chosen = set()
+        auto = dominant_zip(files)  # one giant romset: show its index straight away
         while True:
-            entries = tui_checklist(win, "File (%s)" % (system or "auto"), files, chosen)
-            if not entries:
-                break
-            if isinstance(entries, tuple):
-                entries = tui_zip_members(win, identifier, entries[1])
+            if auto:
+                entries, auto = tui_zip_members(win, identifier, auto, files), None
                 if not entries:
-                    continue
+                    continue  # back: fall through to the plain file list
+            else:
+                entries = tui_checklist(win, "File (%s)" % (system or "auto"), files, chosen)
+                if not entries:
+                    break
+                if isinstance(entries, tuple):
+                    entries = tui_zip_members(win, identifier, entries[1], files)
+                    if not entries:
+                        continue
             try:
                 target = system or deduce_system(entries)
             except Error as e:

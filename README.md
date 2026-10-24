@@ -32,7 +32,7 @@ The top line shows `[files chosen, size chosen / total size of the list]`.
 
 ### Single games inside a zip
 
-Some items hold one big `.zip` with the whole collection (e.g. `GBC.zip`, hundreds of MB). Put the cursor on it and press **Start**: archive.org provides the index, you tick only the games you want and just those are downloaded, without fetching the whole zip. Only `.zip` is supported (not `.7z`/`.rar`). Single files from a zip have no checksum: the size is checked, and an interrupted download restarts from zero.
+Some items hold one big `.zip` with the whole collection (e.g. `GBC.zip`, hundreds of MB). Put the cursor on it and press **Start**: archive.org provides the index, you tick only the games you want and just those are downloaded, without fetching the whole zip. When an item is essentially one huge `.zip` (1 GiB or more, 90% of the item, e.g. the 19 GB FBNeo romset) the index opens by itself, for any system; go back to see the plain file list. If the item also has a `.dat` file (ClrMamePro/Logiqx, like FBNeo's), the cryptic romset names (`1941.zip`) are shown with the full title, year and maker (`1941: Counter Attack (World) (1990, Capcom)`) and the `/` filter searches them too. The `.dat` is downloaded once and cached in `cache/` next to the script. Only `.zip` is supported (not `.7z`/`.rar`). Single files from a zip have no checksum: the size is checked, and an interrupted download restarts from zero.
 
 ### What happens to the files
 
