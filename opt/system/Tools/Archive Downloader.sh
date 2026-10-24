@@ -113,6 +113,8 @@ cp /opt/inttools/keys.gptk "$TMP_KEYS"
 sed -i 's/^b = .*/b = enter/; s/^a = .*/a = esc/' "$TMP_KEYS"
 # X = download (d), Y = select all (a): list shortcuts in the TUI
 sed -i 's/^x = .*/x = d/; s/^y = .*/y = a/' "$TMP_KEYS"
+# Start = open the .zip under the cursor to pick single files inside it
+sed -i 's/^start = .*/start = o/' "$TMP_KEYS"
 Start_GPTKeyb
 
 # =======================================================

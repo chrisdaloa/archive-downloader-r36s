@@ -4,6 +4,7 @@
 Usage on a PC (SD card mounted):
     archive_dl.py --list-sources
     archive_dl.py --search "advance wars"
+    archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "1942" --system gbc --sd /media/user/EASYROMS
     archive_dl.py --tui --sd /media/user/EASYROMS
     archive_dl.py --source gba --match "advance wars" --sd /media/user/EASYROMS
     archive_dl.py https://archive.org/download/gba-italian-romset_202201 --system gba --sd /media/user/EASYROMS
@@ -54,9 +55,9 @@ class Cancelled(Exception):
 # --------------------------------------------------------------------------
 # archive.org
 # --------------------------------------------------------------------------
-def http_open(url, headers=None):
+def http_open(url, headers=None, timeout=30):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
-    return urllib.request.urlopen(req, timeout=30)
+    return urllib.request.urlopen(req, timeout=timeout)
 
 
 def parse_url(url):
@@ -88,6 +89,28 @@ def list_files(identifier):
         if f.get("source") == "derivative" or f.get("format") in ("Metadata", "Item Tile"):
             continue
         out.append({"name": name, "size": int(f.get("size") or 0), "md5": f.get("md5", "")})
+    out.sort(key=lambda x: x["name"].lower())
+    return out
+
+
+ZIP_ROW = re.compile(r'<tr><td><a href="([^"]+)">([^<]+)</a><td><td>[^<]*<td id="size">(\d+)</tr>')
+
+
+def list_zip_members(identifier, zipname):
+    """List the files inside a .zip of an item without downloading it (archive.org builds the index).
+    Entries carry their own "url": archive.org serves a single member from it."""
+    import html
+    url = "https://archive.org/download/%s/%s/" % (urllib.parse.quote(identifier), urllib.parse.quote(zipname))
+    try:
+        with http_open(url, timeout=120) as r:
+            page = r.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError) as e:
+        raise Error("Cannot read the zip index: %s" % e)
+    out = [{"name": html.unescape(name), "size": int(size), "md5": "",
+            "url": "https:" + href if href.startswith("//") else href}
+           for href, name, size in ZIP_ROW.findall(page)]
+    if not out:
+        raise Error("No index available for %s" % zipname)
     out.sort(key=lambda x: x["name"].lower())
     return out
 
@@ -133,7 +156,7 @@ def md5_of(path):
 
 def download(identifier, entry, dest, on_progress=None):
     """Download to dest (via dest.part) with resume and MD5 check."""
-    url = "https://archive.org/download/%s/%s" % (
+    url = entry.get("url") or "https://archive.org/download/%s/%s" % (
         urllib.parse.quote(identifier), urllib.parse.quote(entry["name"]))
     part = dest + ".part"
     total = entry["size"]
@@ -170,6 +193,9 @@ def download(identifier, entry, dest, on_progress=None):
     if entry["md5"] and md5_of(part) != entry["md5"]:
         os.remove(part)
         raise Error("MD5 mismatch for %s" % entry["name"])
+    if not entry["md5"] and total and os.path.getsize(part) != total:  # zip member: no checksum, size only
+        os.remove(part)
+        raise Error("Incomplete download for %s" % entry["name"])
     return part
 
 
@@ -274,7 +300,9 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         base = os.path.basename(e["name"])
         final = os.path.join(dest_dir, base)
         label = "[%d/%d] %s" % (i + 1, len(entries), base)
-        if e["md5"] and os.path.exists(final) and md5_of(final) == e["md5"]:
+        present = os.path.exists(final) and (md5_of(final) == e["md5"] if e["md5"]
+                                             else bool(e["size"]) and os.path.getsize(final) == e["size"])
+        if present:
             if hook:
                 hook((i + 1) * 100 // len(entries), label + " (already present)", e["size"], e["size"])
             else:
@@ -487,8 +515,8 @@ def tui_search(win):
 
 
 def tui_checklist(win, title, files, chosen=None):
-    """Return the list of chosen files, or None to go back.
-    Enter/Space = toggle, d (X on the gamepad) = download, a (Y) = all."""
+    """Return the list of chosen files, ("open", file) to browse a zip, or None to go back.
+    Enter/Space = toggle, d (X on the gamepad) = download, a (Y) = all, o (Start) = open a zip."""
     import curses
     chosen = set() if chosen is None else chosen
     flt = ""
@@ -502,7 +530,7 @@ def tui_checklist(win, title, files, chosen=None):
         _, w = win.getmaxyx()
         head = "%s%s  [%d sel, %s / total %s]" % (title, " /" + flt if flt else "", len(chosen), human(total),
                                               human(sum(f["size"] for f in files)))
-        _frame(win, head, note or "B=toggle  X=download  Y=all  A=back")
+        _frame(win, head, note or "B=toggle  X=download  Y=all  Start=open zip  A=back")
         note = ""
         h, _w = win.getmaxyx()
         rows = h - 2
@@ -527,6 +555,10 @@ def tui_checklist(win, title, files, chosen=None):
             if chosen:
                 return [f for f in files if f["name"] in chosen]
             note = "No file selected"
+        elif k in (ord("o"), ord("O")):
+            if view and view[cur]["name"].lower().endswith(".zip") and not view[cur].get("url"):
+                return ("open", view[cur])
+            note = "Not a zip of this item"
         elif k in (ord("a"), ord("A")):
             names = {f["name"] for f in view}
             chosen = chosen - names if names <= chosen else chosen | names
@@ -541,6 +573,17 @@ def tui_checklist(win, title, files, chosen=None):
                 return None
         else:
             cur = _move(k, cur, n, rows)
+
+
+def tui_zip_members(win, identifier, zipfile_entry):
+    """Browse the files inside a zip of the item. Return the chosen members, or None to go back."""
+    tui_message(win, "Archive Downloader", ["Reading zip index..."], wait=False)
+    try:
+        members = list_zip_members(identifier, zipfile_entry["name"])
+    except Error as e:
+        tui_message(win, "Error", [str(e)])
+        return None
+    return tui_checklist(win, "Zip: %s" % zipfile_entry["name"], members)
 
 
 def tui_confirm(win, entries, system, systems, sd):
@@ -688,6 +731,10 @@ def _tui_main(win, args):
             entries = tui_checklist(win, "File (%s)" % (system or "auto"), files, chosen)
             if not entries:
                 break
+            if isinstance(entries, tuple):
+                entries = tui_zip_members(win, identifier, entries[1])
+                if not entries:
+                    continue
             try:
                 target = system or deduce_system(entries)
             except Error as e:
@@ -766,6 +813,7 @@ def main(argv=None):
     p.add_argument("--sd", help="SD card mount point (PC use)")
     p.add_argument("--es-cfg", default=DEFAULT_ES_CFG)
     p.add_argument("--conf", default=DEFAULT_CONF)
+    p.add_argument("--zip", metavar="FILE", help="work on the files inside this .zip of the item")
     p.add_argument("--match", help="regex on the file name")
     p.add_argument("--all", action="store_true")
     p.add_argument("--files-from", help="file with one name per line (selection already made)")
@@ -789,6 +837,8 @@ def main(argv=None):
             return 0
         url, system = resolve_url(args)
         identifier, files = fetch_files(url)
+        if args.zip:
+            files = list_zip_members(identifier, args.zip)
         if cmd == "files":
             for f in files:
                 print("%s\t%d\t%s" % (f["name"], f["size"], f["md5"]))

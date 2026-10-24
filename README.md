@@ -23,10 +23,16 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 | B | tick the file (in menus: confirm) |
 | X | download the ticked files |
 | Y | tick / untick all |
+| Start | open the `.zip` under the cursor and pick single files inside it |
 | A | back |
 | `/` (keyboard) | filter by name |
+| `o` (keyboard) | same as Start |
 
 The top line shows `[files chosen, size chosen / total size of the list]`.
+
+### Single games inside a zip
+
+Some items hold one big `.zip` with the whole collection (e.g. `GBC.zip`, hundreds of MB). Put the cursor on it and press **Start**: archive.org provides the index, you tick only the games you want and just those are downloaded, without fetching the whole zip. Only `.zip` is supported (not `.7z`/`.rar`). Single files from a zip have no checksum: the size is checked, and an interrupted download restarts from zero.
 
 ### What happens to the files
 
@@ -41,6 +47,7 @@ The top line shows `[files chosen, size chosen / total size of the list]`.
 python3 archive_dl.py --tui --sd /media/$USER/<SD>
 python3 archive_dl.py --list-sources
 python3 archive_dl.py --search "advance wars"
+python3 archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "^GBC/1942 " --system gbc --sd /media/$USER/<SD>
 python3 archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
 python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 ```
