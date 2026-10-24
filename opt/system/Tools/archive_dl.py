@@ -30,6 +30,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
+AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
 USER_AGENT = "archive_dl/1.0 (dArkOS R36S)"
 CHUNK = 1024 * 256
@@ -56,8 +57,22 @@ class Cancelled(Exception):
 # --------------------------------------------------------------------------
 # archive.org
 # --------------------------------------------------------------------------
+def auth_header(url):
+    """archive.org S3 keys from archive_auth.conf, only for archive.org hosts (never sent elsewhere)."""
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host != "archive.org" and not host.endswith(".archive.org"):
+        return {}
+    cp = configparser.ConfigParser(interpolation=None)
+    try:
+        cp.read(AUTH_CONF, encoding="utf-8")
+        return {"Authorization": "LOW %s:%s" % (cp["archive.org"]["access"].strip(),
+                                                cp["archive.org"]["secret"].strip())}
+    except (KeyError, configparser.Error):
+        return {}
+
+
 def http_open(url, headers=None, timeout=30):
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **auth_header(url), **(headers or {})})
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -141,7 +156,8 @@ def search_items(query, rows=50):
 
 
 UPDATE_BASE = "https://raw.githubusercontent.com/chrisdaloa/archive-downloader-r36s/main/opt/system/Tools/"
-UPDATE_FILES = ("archive_dl.py", "Archive Downloader.sh", "archive_sources.example.conf")  # never archive_sources.conf
+UPDATE_FILES = ("archive_dl.py", "Archive Downloader.sh", "archive_sources.example.conf",
+                "archive_auth.example.conf")  # never archive_sources.conf / archive_auth.conf
 
 
 def check_update():
@@ -218,6 +234,8 @@ def download(identifier, entry, dest, on_progress=None):
         except urllib.error.HTTPError as e:
             if e.code == 416 and have:  # already complete
                 break
+            if e.code in (401, 403):
+                raise Error("Login required for %s: add your archive.org keys to archive_auth.conf" % entry["name"])
             raise Error("HTTP %d while downloading %s" % (e.code, entry["name"]))
         except (urllib.error.URLError, OSError) as e:
             raise Error("Network error: %s" % e)
@@ -312,12 +330,16 @@ def install(part, name, dest_dir, exts):
             subprocess.run([tool, "x", "-y", "-o" + tmp, part],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         entries = os.listdir(tmp)
-        # several top-level entries (e.g. ScummVM games): folder named after the archive
-        target = dest_dir if len(entries) == 1 else os.path.join(dest_dir, os.path.splitext(base)[0])
+        # several top-level entries (e.g. ScummVM games): folder named after the archive,
+        # unless one of them is a file the system launches itself (e.g. a port: "Game.sh" + "game/")
+        launcher = any(os.path.isfile(os.path.join(tmp, n)) and os.path.splitext(n)[1].lower() in exts
+                       for n in entries)
+        wrap = len(entries) > 1 and not launcher
+        target = os.path.join(dest_dir, os.path.splitext(base)[0]) if wrap else dest_dir
         os.makedirs(target, exist_ok=True)
-        for name in entries if len(entries) == 1 else [os.path.join(tmp, n) for n in entries]:
-            src = os.path.join(tmp, name) if len(entries) == 1 else name
-            dst = os.path.join(target, os.path.basename(src))
+        for name in entries:
+            src = os.path.join(tmp, name)
+            dst = os.path.join(target, name)
             if os.path.isdir(src):
                 shutil.copytree(src, dst, dirs_exist_ok=True)
             else:
@@ -329,14 +351,14 @@ def install(part, name, dest_dir, exts):
     os.remove(part)
     # ScummVM: ES only lists .scummvm files, which contain the game folder name
     if ".scummvm" in exts:
-        games = [os.path.basename(target)] if len(entries) > 1 else \
+        games = [os.path.basename(target)] if wrap else \
                 [n for n in entries if os.path.isdir(os.path.join(dest_dir, n))]
         for g in games:
             shortcut = os.path.join(dest_dir, g + ".scummvm")
             if not os.path.exists(shortcut):
                 with open(shortcut, "w", encoding="utf-8") as fh:
                     fh.write(g + "\n")
-    return base + (" (extracted to folder)" if len(entries) > 1 else " (extracted)")
+    return base + (" (extracted to folder)" if wrap else " (extracted)")
 
 
 def install_entries(identifier, entries, system, systems, sd, gauge=False, out=print, hook=None):

@@ -55,9 +55,13 @@ python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 
 `--sd` is the mount point of the SD card; the ROM folder is read from `es_systems.cfg` (`--es-cfg` to point to another one).
 
+## archive.org login (restricted items)
+
+A few items (e.g. the full PortMaster pack `portmaster_ports_202405`) can only be downloaded by logged-in users: without a login archive.org answers 401/403 and the tool says "Login required". Create a free account, get your keys from <https://archive.org/account/s3.php>, copy `archive_auth.example.conf` to `archive_auth.conf` (same folder, not versioned) and fill in `access` and `secret`. The keys are only sent to `archive.org` hosts and are stored in clear text on the device: keep the file private and never commit it. Public items work with or without it.
+
 ## Updating
 
-**Update tool...** in the menu (or `--update` on a PC) compares `archive_dl.py`, `Archive Downloader.sh` and `archive_sources.example.conf` with the `main` branch of this repository and replaces the ones that differ. Your `archive_sources.conf` is never touched, the previous script is kept as `archive_dl.py.bak`, and nothing is written if the downloaded script does not compile. Relaunch the tool afterwards. It needs Wi-Fi; it runs whatever is on `main`, so only use it if you trust the repository.
+**Update tool...** in the menu (or `--update` on a PC) compares `archive_dl.py`, `Archive Downloader.sh`, `archive_sources.example.conf` and `archive_auth.example.conf` with the `main` branch of this repository and replaces the ones that differ. Your `archive_sources.conf` and `archive_auth.conf` are never touched, the previous script is kept as `archive_dl.py.bak`, and nothing is written if the downloaded script does not compile. Relaunch the tool afterwards. It needs Wi-Fi; it runs whatever is on `main`, so only use it if you trust the repository.
 
 ## Adding a source
 
