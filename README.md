@@ -57,7 +57,31 @@ python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 
 ## archive.org login (restricted items)
 
-A few items (e.g. the full PortMaster pack `portmaster_ports_202405`) can only be downloaded by logged-in users: without a login archive.org answers 401/403 and the tool says "Login required". Create a free account, get your keys from <https://archive.org/account/s3.php>, copy `archive_auth.example.conf` to `archive_auth.conf` (same folder, not versioned) and fill in `access` and `secret`. The keys are only sent to `archive.org` hosts and are stored in clear text on the device: keep the file private and never commit it. Public items work with or without it.
+A few items (e.g. the full PortMaster pack `portmaster_ports_202405`) can only be downloaded by logged-in users: without a login archive.org answers 401/403 and the tool says "Login required". Public items work with or without a login.
+
+**Where to put the keys:** in `archive_auth.conf`, next to `archive_dl.py`:
+
+- on the console: `/opt/system/Tools/archive_auth.conf`
+- on a PC: `opt/system/Tools/archive_auth.conf` in this repository
+
+The file is listed in `.gitignore`, so git never tracks it and your keys are not pushed. Only the template `archive_auth.example.conf` is versioned, and the updater never touches your `archive_auth.conf`.
+
+1. Create a free account on archive.org and get your keys at <https://archive.org/account/s3.php>.
+2. Copy `archive_auth.example.conf` to `archive_auth.conf` and fill it in:
+
+   ```ini
+   [archive.org]
+   access = YOUR_ACCESS_KEY
+   secret = YOUR_SECRET_KEY
+   ```
+
+   Or from a PC, straight onto the console:
+
+   ```
+   ssh ark@<console-ip> "printf '[archive.org]\naccess = XXX\nsecret = YYY\n' > /opt/system/Tools/archive_auth.conf"
+   ```
+
+The keys are only sent to `archive.org` hosts. They are stored in clear text, and the ROM partition ignores file permissions, so anyone with the console or the SD card can read them: never commit or share the file. If they leak, regenerate them on the same archive.org page.
 
 ## Updating
 
