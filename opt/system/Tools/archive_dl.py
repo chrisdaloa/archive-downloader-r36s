@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,6 +30,7 @@ DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
 USER_AGENT = "archive_dl/1.0 (dArkOS R36S)"
 CHUNK = 1024 * 256
+DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
 
 EXT_TO_SYSTEM = {
     ".gba": "gba", ".gb": "gb", ".gbc": "gbc", ".nes": "nes", ".fds": "fds",
@@ -42,6 +44,10 @@ SKIP_SUFFIXES = ("_meta.xml", "_files.xml", "_meta.sqlite", "_reviews.xml", "__i
 
 class Error(Exception):
     pass
+
+
+class Cancelled(Exception):
+    """Download cancelled by the user; the .part file is kept for resuming."""
 
 
 # --------------------------------------------------------------------------
@@ -126,7 +132,7 @@ def download(identifier, entry, dest, on_progress=None):
             with open(part, "ab" if have else "wb") as f:
                 done = have
                 while True:
-                    chunk = r.read(CHUNK)
+                    chunk = r.read(DL_CHUNK)
                     if not chunk:
                         break
                     f.write(chunk)
@@ -519,12 +525,33 @@ def tui_download(win, identifier, entries, system, systems, sd):
     import curses
 
     grand = sum(e["size"] for e in entries)
+    st = {"label": None, "t0": 0.0, "d0": 0, "draw": 0.0}
 
     def hook(pct, label, done=0, total=0):
+        now = time.time()
+        win.nodelay(True)  # poll the keyboard: A / Esc cancels (the .part file is kept)
+        try:
+            while True:
+                k = win.getch()
+                if k == -1:
+                    break
+                if _is_back(k):
+                    raise Cancelled()
+        finally:
+            win.nodelay(False)
+        if label != st["label"]:
+            st.update(label=label, t0=now, d0=done, draw=0.0)
+        if now - st["draw"] < 0.25 and pct < 100:
+            return
+        st["draw"] = now
         h, w = win.getmaxyx()
-        _frame(win, "Download", "")
+        _frame(win, "Download", "A=cancel (resumable)")
         _put(win, 2, 1, label)
         _put(win, 3, 1, "File: %s / %s   Total: %s" % (human(done), human(total), human(grand)))
+        speed = (done - st["d0"]) / (now - st["t0"]) if now - st["t0"] >= 1 else 0
+        if speed > 0:
+            eta = int((total - done) / speed) if total > done else 0
+            _put(win, 5, 1, "Speed: %s/s   ETA: %d:%02d:%02d" % (human(speed), eta // 3600, eta % 3600 // 60, eta % 60))
         bar = max(10, w - 10)
         fill = bar * pct // 100
         _put(win, 4, 1, "[" + "#" * fill + "-" * (bar - fill) + "] %3d%%" % pct)
@@ -533,6 +560,9 @@ def tui_download(win, identifier, entries, system, systems, sd):
     try:
         hook(0, "Starting...")
         dest, errors = install_entries(identifier, entries, system, systems, sd, hook=hook)
+    except Cancelled:
+        tui_message(win, "Cancelled", ["Download stopped.", "Partial files (.part) are kept: run it again to resume."])
+        return False
     except Error as e:
         tui_message(win, "Error", [str(e)])
         return False
