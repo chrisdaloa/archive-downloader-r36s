@@ -32,7 +32,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-USER_AGENT = "archive_dl/1.0 (dArkOS R36S)"
+VERSION = "1.1.0"  # bump on every change that should reach users through "Update tool..."
+USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
 
@@ -177,6 +178,14 @@ def check_update():
         if data != old:
             changed.append((name, data))
     return changed
+
+
+def version_of(code):
+    """VERSION declared in the source of archive_dl.py (bytes or str), or None."""
+    if isinstance(code, bytes):
+        code = code.decode("utf-8", "replace")
+    m = re.search(r'^VERSION = "([^"]+)"', code, re.M)
+    return m.group(1) if m else None
 
 
 def apply_update(changed):
@@ -720,10 +729,11 @@ def tui_update(win):
     try:
         changed = check_update()
         if not changed:
-            tui_message(win, "Update", ["Already up to date."])
+            tui_message(win, "Update", ["Already up to date (v%s)." % VERSION])
             return False
+        latest = next((version_of(d) for n, d in changed if n == "archive_dl.py"), None) or VERSION
         label = "Update now (%s)" % ", ".join(n for n, _d in changed)
-        if tui_menu(win, "Update available", [label, "Cancel"]) != 0:
+        if tui_menu(win, "Update available: v%s -> v%s" % (VERSION, latest), [label, "Cancel"]) != 0:
             return False
         apply_update(changed)
     except Error as e:
@@ -853,7 +863,7 @@ def _tui_main(win, args):
     installed = False
     while True:
         labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Search archive.org...", "Other URL...", "Update tool..."]
-        i = tui_menu(win, "Archive Downloader - source", labels, "Up/Down=move  B=choose  A=quit" if GAMEPAD else "Up/Down  Enter=choose  Esc=quit")
+        i = tui_menu(win, "Archive Downloader v%s - source" % VERSION, labels, "Up/Down=move  B=choose  A=quit" if GAMEPAD else "Up/Down  Enter=choose  Esc=quit")
         if i is None:
             return EXIT_INSTALLED if installed else 0
         if i < len(sources):
@@ -961,6 +971,7 @@ def main(argv=None):
     p.add_argument("url2", nargs="?", help=argparse.SUPPRESS)
     p.add_argument("--source", help="system defined in archive_sources.conf")
     p.add_argument("--list-sources", action="store_true")
+    p.add_argument("--version", action="version", version="%(prog)s " + VERSION)
     p.add_argument("--update", action="store_true", help="update the tool from the GitHub repository")
     p.add_argument("--search", metavar="QUERY", help="search archive.org software items and print the results")
     p.add_argument("--system", help="destination system (name in es_systems.cfg)")
@@ -989,8 +1000,9 @@ def main(argv=None):
             if not changed:
                 print("Already up to date.")
                 return 0
+            latest = next((version_of(d) for n, d in changed if n == "archive_dl.py"), None)
             apply_update(changed)
-            print("Updated: %s" % ", ".join(n for n, _d in changed))
+            print("Updated%s: %s" % (" to v" + latest if latest else "", ", ".join(n for n, _d in changed)))
             return 0
         if args.gamelist:
             dest, _exts = resolve_rom_dir(args.system or "ports", load_systems(args.es_cfg), args.sd)
