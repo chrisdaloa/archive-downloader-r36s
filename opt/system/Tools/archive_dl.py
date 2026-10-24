@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.3.0"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.3.1"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
@@ -967,12 +967,12 @@ def _tui_main(win, args):
             tui_message(win, "Error", [str(e)])
             continue
         chosen = set()
-        auto = dominant_zip(files)  # one giant romset: show its index straight away
+        auto = dominant_zip(files)  # one giant romset: its index is the file list
         while True:
             if auto:
-                entries, auto = tui_zip_members(win, identifier, auto, files), None
+                entries = tui_zip_members(win, identifier, auto, files)
                 if not entries:
-                    continue  # back: fall through to the plain file list
+                    break  # back: to the source list, not to the one giant file
             else:
                 entries = tui_checklist(win, "File (%s)" % (system or "auto"), files, chosen)
                 if not entries:
