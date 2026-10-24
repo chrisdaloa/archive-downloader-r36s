@@ -3,6 +3,7 @@
 
 Usage on a PC (SD card mounted):
     archive_dl.py --list-sources
+    archive_dl.py --search "advance wars"
     archive_dl.py --tui --sd /media/user/EASYROMS
     archive_dl.py --source gba --match "advance wars" --sd /media/user/EASYROMS
     archive_dl.py https://archive.org/download/gba-italian-romset_202201 --system gba --sd /media/user/EASYROMS
@@ -89,6 +90,30 @@ def list_files(identifier):
         out.append({"name": name, "size": int(f.get("size") or 0), "md5": f.get("md5", "")})
     out.sort(key=lambda x: x["name"].lower())
     return out
+
+
+def search_items(query, rows=50):
+    """Search archive.org software items. Return [{"id", "title", "size"}], most downloaded first."""
+    import json
+    words = query.replace('"', " ").split()
+    if not words:
+        raise Error("Empty search")
+    query = " AND ".join(words)
+    params = urllib.parse.urlencode({
+        "q": "title:(%s) AND mediatype:software" % query,
+        "fl[]": ["identifier", "title", "item_size"],
+        "sort[]": "downloads desc",
+        "rows": rows,
+        "output": "json",
+    }, doseq=True)
+    try:
+        with http_open("https://archive.org/advancedsearch.php?" + params) as r:
+            data = json.load(r)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise Error("Search failed: %s" % e)
+    return [{"id": d["identifier"], "title": d.get("title") or d["identifier"],
+             "size": int(d.get("item_size") or 0)}
+            for d in data.get("response", {}).get("docs", []) if d.get("identifier")]
 
 
 def human(n):
@@ -424,18 +449,41 @@ def tui_text(win, prompt):
         curses.curs_set(0)
 
 
-def tui_ask_url(win):
+def tui_ask(win, title, prompt):
     import curses
     if os.path.exists(OSK):  # on-screen keyboard (gamepad)
         curses.def_prog_mode()
         curses.endwin()
-        res = subprocess.run([sys.executable, OSK, "URL archive.org", "URL"],
+        res = subprocess.run([sys.executable, OSK, title, prompt.rstrip(": ")],
                              stderr=subprocess.PIPE, text=True)
         curses.reset_prog_mode()
         win.clear()
         win.refresh()
         return res.stderr.strip() if res.returncode == 0 else None
-    return tui_text(win, "URL: ")
+    return tui_text(win, prompt)
+
+
+def tui_ask_url(win):
+    return tui_ask(win, "URL archive.org", "URL: ")
+
+
+def tui_search(win):
+    """Ask for a query and pick one result. Return the item URL, or None."""
+    query = tui_ask(win, "Search archive.org", "Search: ")
+    if not query or not query.strip():
+        return None
+    tui_message(win, "Archive Downloader", ["Searching..."], wait=False)
+    try:
+        results = search_items(query)
+    except Error as e:
+        tui_message(win, "Error", [str(e)])
+        return None
+    if not results:
+        tui_message(win, "Search", ["No results for: %s" % query])
+        return None
+    labels = ["%s [%s]" % (r["title"], human(r["size"])) for r in results]
+    i = tui_menu(win, "Results: %s" % query, labels)
+    return None if i is None else "https://archive.org/details/" + results[i]["id"]
 
 
 def tui_checklist(win, title, files, chosen=None):
@@ -614,14 +662,14 @@ def _tui_main(win, args):
     systems = load_systems(args.es_cfg)
     installed = False
     while True:
-        labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Other URL..."]
+        labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Search archive.org...", "Other URL..."]
         i = tui_menu(win, "Archive Downloader - source", labels, "Up/Down  Enter=choose  Esc=quit")
         if i is None:
             return EXIT_INSTALLED if installed else 0
         if i < len(sources):
             system, url = sources[i][0], sources[i][2]
         else:
-            url = tui_ask_url(win)
+            url = tui_search(win) if i == len(sources) else tui_ask_url(win)
             if not url:
                 continue
             names = sorted(systems)
@@ -713,6 +761,7 @@ def main(argv=None):
     p.add_argument("url2", nargs="?", help=argparse.SUPPRESS)
     p.add_argument("--source", help="system defined in archive_sources.conf")
     p.add_argument("--list-sources", action="store_true")
+    p.add_argument("--search", metavar="QUERY", help="search archive.org software items and print the results")
     p.add_argument("--system", help="destination system (name in es_systems.cfg)")
     p.add_argument("--sd", help="SD card mount point (PC use)")
     p.add_argument("--es-cfg", default=DEFAULT_ES_CFG)
@@ -730,6 +779,10 @@ def main(argv=None):
     try:
         if args.tui:
             return run_tui(args)
+        if args.search:
+            for r in search_items(args.search):
+                print("%s\t%s\t%s" % (r["id"], human(r["size"]), r["title"]))
+            return 0
         if args.list_sources or cmd == "sources":
             for sec, name, url in load_sources(args.conf):
                 print("%s\t%s\t%s" % (sec, name, url))

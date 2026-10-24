@@ -9,7 +9,7 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 
 1. Turn Wi-Fi on.
 2. In EmulationStation: **Tools → Archive Downloader**, then accept the disclaimer with **B**.
-3. Pick a source from the list, or **Other URL...** for your own link.
+3. Pick a source from the list, **Search archive.org...** to look for an item by title, or **Other URL...** for your own link.
 4. Tick the files to download and press **X**.
 5. Check the summary (number of files, total size, free space) and press **B** to download or **A** to cancel.
 6. When done, quit with **A**: EmulationStation restarts and the games show up.
@@ -40,6 +40,7 @@ The top line shows `[files chosen, size chosen / total size of the list]`.
 ```
 python3 archive_dl.py --tui --sd /media/$USER/<SD>
 python3 archive_dl.py --list-sources
+python3 archive_dl.py --search "advance wars"
 python3 archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
 python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 ```
