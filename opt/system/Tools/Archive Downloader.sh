@@ -98,7 +98,7 @@ fi
 # Main menu (TUI in Python, 20 = qualcosa installato)
 # =======================================================
 Main_Menu() {
-    python3 -I "$PY" --tui > "$CURR_TTY" < "$CURR_TTY"
+    python3 -I "$PY" --tui --pad > "$CURR_TTY" < "$CURR_TTY"
     [ $? -eq 20 ] && RESTART_ES=1
     Exit_Menu
 }

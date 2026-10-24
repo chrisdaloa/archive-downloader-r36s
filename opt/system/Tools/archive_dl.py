@@ -421,6 +421,7 @@ def select_interactive(files):
 # TUI (curses): arrows/PgUp/PgDn, Enter and Esc only, so it is usable with a gamepad
 # --------------------------------------------------------------------------
 OSK = "/opt/inttools/osk.py"
+GAMEPAD = False  # set by --pad (console launcher): footers show the gamepad buttons instead of the keyboard keys
 EXIT_INSTALLED = 20  # TUI exit code: something was installed
 
 
@@ -463,8 +464,10 @@ def _move(k, cur, n, page):
     return cur
 
 
-def tui_menu(win, title, labels, footer="Up/Down choose  Enter ok  Esc back"):
+def tui_menu(win, title, labels, footer=None):
     import curses
+    if footer is None:
+        footer = "Up/Down=move  B=ok  A=back" if GAMEPAD else "Up/Down choose  Enter ok  Esc back"
     cur = top = 0
     while True:
         _frame(win, title, footer)
@@ -529,12 +532,14 @@ def tui_ask(win, title, prompt):
     if os.path.exists(OSK):  # on-screen keyboard (gamepad)
         curses.def_prog_mode()
         curses.endwin()
-        res = subprocess.run([sys.executable, OSK, title, prompt.rstrip(": ")],
-                             stderr=subprocess.PIPE, text=True)
+        res = subprocess.run([sys.executable, OSK, "--backtitle", title, "--inputbox", prompt.rstrip(": ")],
+                             stderr=subprocess.PIPE, text=True,
+                             env={**os.environ, "PYTHONWARNINGS": "ignore"})
         curses.reset_prog_mode()
         win.clear()
         win.refresh()
-        return res.stderr.strip() if res.returncode == 0 else None
+        lines = res.stderr.strip().splitlines()  # the typed text is the last line; warnings may precede it
+        return lines[-1].strip() if res.returncode == 0 and lines else None
     return tui_text(win, prompt)
 
 
@@ -765,14 +770,14 @@ def _tui_main(win, args):
     if not tui_disclaimer(win):
         return 0
     try:
-        sources = load_sources(args.conf)
+        sources = sorted(load_sources(args.conf), key=lambda s: (s[0].lower(), s[1].lower()))
     except Error:
         sources = []
     systems = load_systems(args.es_cfg)
     installed = False
     while True:
         labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Search archive.org...", "Other URL...", "Update tool..."]
-        i = tui_menu(win, "Archive Downloader - source", labels, "Up/Down  Enter=choose  Esc=quit")
+        i = tui_menu(win, "Archive Downloader - source", labels, "Up/Down=move  B=choose  A=quit" if GAMEPAD else "Up/Down  Enter=choose  Esc=quit")
         if i is None:
             return EXIT_INSTALLED if installed else 0
         if i < len(sources):
@@ -820,6 +825,8 @@ def run_tui(args):
     import locale
     os.environ.setdefault("ESCDELAY", "25")
     locale.setlocale(locale.LC_ALL, "")
+    global GAMEPAD
+    GAMEPAD = args.pad
     return curses.wrapper(_tui_main, args)
 
 
@@ -889,6 +896,7 @@ def main(argv=None):
     p.add_argument("--all", action="store_true")
     p.add_argument("--files-from", help="file with one name per line (selection already made)")
     p.add_argument("--tui", action="store_true", help="full-screen interface (curses)")
+    p.add_argument("--pad", action="store_true", help="show gamepad buttons in the TUI hints (console launcher)")
     p.add_argument("--gauge", action="store_true", help="output for dialog --gauge")
     args = p.parse_args(argv)
 
