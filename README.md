@@ -67,3 +67,7 @@ Nome visibile = https://archive.org/details/identificativo-item
 - **MD5 non corrispondente**: il file viene scartato, riprova.
 - **Gioco non visibile**: riavvia EmulationStation o controlla di aver scaricato nel sistema giusto.
 - Alcuni item sono enormi (decine di GB): guarda la dimensione nel riepilogo prima di confermare.
+
+## Licenza
+
+MIT, vedi il file `LICENSE`.
