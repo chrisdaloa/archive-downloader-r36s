@@ -28,6 +28,8 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 | `/` (keyboard) | filter by name |
 | `o` (keyboard) | same as Start |
 
+A row too long for the screen scrolls by itself while the cursor rests on it, so you can read the whole name and the size.
+
 The top line shows `[files chosen, size chosen / total size of the list]`.
 
 ### Single games inside a zip

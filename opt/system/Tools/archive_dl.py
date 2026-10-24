@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.3.1"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.4.0"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
@@ -575,6 +575,24 @@ def _put(win, y, x, text, attr=0):
             pass
 
 
+def marquee(text, width, tick):
+    """The part of a too-long text to show at this tick: rests at the start, scrolls to the end, rests, restarts."""
+    over = len(text) - width
+    if over <= 0:
+        return text
+    pause = 4
+    off = tick % (over + 2 * pause)
+    return text[min(max(off - pause, 0), over):][:width]
+
+
+def _getch(win, scrolling):
+    """getch(); with scrolling=True it gives up after 300 ms and returns -1 so the caller can animate."""
+    win.timeout(300 if scrolling else -1)
+    k = win.getch()
+    win.timeout(-1)
+    return k
+
+
 def _frame(win, title, footer):
     import curses
     win.erase()
@@ -609,10 +627,10 @@ def tui_menu(win, title, labels, footer=None):
     import curses
     if footer is None:
         footer = "Up/Down=move  B=ok  A=back" if GAMEPAD else "Up/Down choose  Enter ok  Esc back"
-    cur = top = 0
+    cur = top = tick = 0
     while True:
         _frame(win, title, footer)
-        h, _w = win.getmaxyx()
+        h, w = win.getmaxyx()
         rows = h - 2
         if cur < top:
             top = cur
@@ -622,10 +640,15 @@ def tui_menu(win, title, labels, footer=None):
             i = top + r
             if i >= len(labels):
                 break
-            _put(win, 1 + r, 0, ("> " if i == cur else "  ") + labels[i],
+            text = marquee(labels[i], w - 3, tick) if i == cur else labels[i]
+            _put(win, 1 + r, 0, ("> " if i == cur else "  ") + text,
                  curses.A_REVERSE if i == cur else 0)
         win.refresh()
-        k = win.getch()
+        k = _getch(win, cur < len(labels) and len(labels[cur]) > w - 3)
+        if k == -1:
+            tick += 1
+            continue
+        tick = 0
         if k in (10, 13, curses.KEY_ENTER):
             return cur
         if _is_back(k):
@@ -707,13 +730,17 @@ def tui_search(win):
     return None if i is None else "https://archive.org/details/" + results[i]["id"]
 
 
+def _row_label(f, chosen):
+    return "[%s] %s (%s)" % ("x" if f["name"] in chosen else " ", f.get("title") or f["name"], human(f["size"]))
+
+
 def tui_checklist(win, title, files, chosen=None):
     """Return the list of chosen files, ("open", file) to browse a zip, or None to go back.
     Enter/Space = toggle, d (X on the gamepad) = download, a (Y) = all, o (Start) = open a zip."""
     import curses
     chosen = set() if chosen is None else chosen
     flt = ""
-    cur = top = 0
+    cur = top = tick = 0
     note = ""
     while True:
         view = [f for f in files if flt.lower() in f["name"].lower() or flt.lower() in f.get("title", "").lower()]
@@ -736,11 +763,17 @@ def tui_checklist(win, title, files, chosen=None):
             if i >= len(view):
                 break
             f = view[i]
-            label = "[%s] %s (%s)" % ("x" if f["name"] in chosen else " ", f.get("title") or f["name"], human(f["size"]))
+            label = _row_label(f, chosen)
+            if i == cur:
+                label = marquee(label, w - 3, tick)
             _put(win, 1 + r, 0, ("> " if i == cur else "  ") + label,
                  curses.A_REVERSE if i == cur else 0)
         win.refresh()
-        k = win.getch()
+        k = _getch(win, bool(view) and len(_row_label(view[cur], chosen)) > w - 3)
+        if k == -1:
+            tick += 1
+            continue
+        tick = 0
         if k in (10, 13, curses.KEY_ENTER, ord(" ")):
             if view:
                 chosen ^= {view[cur]["name"]}
