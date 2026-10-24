@@ -9,7 +9,7 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 
 1. Turn Wi-Fi on.
 2. In EmulationStation: **Tools → Archive Downloader**, then accept the disclaimer with **B**.
-3. Pick a source from the list, **Search archive.org...** to look for an item by title, or **Other URL...** for your own link.
+3. Pick a source from the list, **Search archive.org...** to look for an item by title, or **Other URL...** for your own link. **Update tool...** downloads the latest version from this repository.
 4. Tick the files to download and press **X**.
 5. Check the summary (number of files, total size, free space) and press **B** to download or **A** to cancel.
 6. When done, quit with **A**: EmulationStation restarts and the games show up.
@@ -47,12 +47,17 @@ Some items hold one big `.zip` with the whole collection (e.g. `GBC.zip`, hundre
 python3 archive_dl.py --tui --sd /media/$USER/<SD>
 python3 archive_dl.py --list-sources
 python3 archive_dl.py --search "advance wars"
+python3 archive_dl.py --update
 python3 archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "^GBC/1942 " --system gbc --sd /media/$USER/<SD>
 python3 archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
 python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 ```
 
 `--sd` is the mount point of the SD card; the ROM folder is read from `es_systems.cfg` (`--es-cfg` to point to another one).
+
+## Updating
+
+**Update tool...** in the menu (or `--update` on a PC) compares `archive_dl.py`, `Archive Downloader.sh` and `archive_sources.example.conf` with the `main` branch of this repository and replaces the ones that differ. Your `archive_sources.conf` is never touched, the previous script is kept as `archive_dl.py.bak`, and nothing is written if the downloaded script does not compile. Relaunch the tool afterwards. It needs Wi-Fi; it runs whatever is on `main`, so only use it if you trust the repository.
 
 ## Adding a source
 

@@ -4,6 +4,7 @@
 Usage on a PC (SD card mounted):
     archive_dl.py --list-sources
     archive_dl.py --search "advance wars"
+    archive_dl.py --update
     archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "1942" --system gbc --sd /media/user/EASYROMS
     archive_dl.py --tui --sd /media/user/EASYROMS
     archive_dl.py --source gba --match "advance wars" --sd /media/user/EASYROMS
@@ -137,6 +138,52 @@ def search_items(query, rows=50):
     return [{"id": d["identifier"], "title": d.get("title") or d["identifier"],
              "size": int(d.get("item_size") or 0)}
             for d in data.get("response", {}).get("docs", []) if d.get("identifier")]
+
+
+UPDATE_BASE = "https://raw.githubusercontent.com/chrisdaloa/archive-downloader-r36s/main/opt/system/Tools/"
+UPDATE_FILES = ("archive_dl.py", "Archive Downloader.sh", "archive_sources.example.conf")  # never archive_sources.conf
+
+
+def check_update():
+    """Compare the installed files with the repository. Return [(name, new_content)] for those that differ."""
+    changed = []
+    for name in UPDATE_FILES:
+        try:
+            with http_open(UPDATE_BASE + urllib.parse.quote(name)) as r:
+                data = r.read()
+        except (urllib.error.URLError, OSError) as e:
+            raise Error("Cannot reach the repository: %s" % e)
+        path = os.path.join(HERE, name)
+        old = None
+        if os.path.exists(path):
+            with open(path, "rb") as fh:
+                old = fh.read()
+        if data != old:
+            changed.append((name, data))
+    return changed
+
+
+def apply_update(changed):
+    """Replace the files (the old script is kept as .bak). Nothing is written if the new code does not compile."""
+    for name, data in changed:
+        if name.endswith(".py"):
+            try:
+                compile(data, name, "exec")
+            except (SyntaxError, ValueError) as e:
+                raise Error("Downloaded %s is not valid Python (%s): update aborted" % (name, e))
+    try:
+        for name, data in changed:
+            path = os.path.join(HERE, name)
+            mode = os.stat(path).st_mode if os.path.exists(path) else 0o644
+            if os.path.exists(path):
+                shutil.copy2(path, path + ".bak")
+            tmp = path + ".new"
+            with open(tmp, "wb") as fh:
+                fh.write(data)
+            os.chmod(tmp, mode)
+            os.replace(tmp, path)  # new inode: a running copy of the .sh keeps reading the old one
+    except OSError as e:
+        raise Error("Cannot write the update: %s" % e)
 
 
 def human(n):
@@ -586,6 +633,25 @@ def tui_zip_members(win, identifier, zipfile_entry):
     return tui_checklist(win, "Zip: %s" % zipfile_entry["name"], members)
 
 
+def tui_update(win):
+    """Update the tool from the repository. True = updated (restart needed)."""
+    tui_message(win, "Update", ["Checking the repository..."], wait=False)
+    try:
+        changed = check_update()
+        if not changed:
+            tui_message(win, "Update", ["Already up to date."])
+            return False
+        label = "Update now (%s)" % ", ".join(n for n, _d in changed)
+        if tui_menu(win, "Update available", [label, "Cancel"]) != 0:
+            return False
+        apply_update(changed)
+    except Error as e:
+        tui_message(win, "Error", [str(e)])
+        return False
+    tui_message(win, "Update", ["Updated.", "Quit and relaunch the tool to use the new version."])
+    return True
+
+
 def tui_confirm(win, entries, system, systems, sd):
     """Summary before downloading. True = proceed, False = cancel."""
     import curses
@@ -705,12 +771,16 @@ def _tui_main(win, args):
     systems = load_systems(args.es_cfg)
     installed = False
     while True:
-        labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Search archive.org...", "Other URL..."]
+        labels = ["[%s] %s" % (s, n) for s, n, _u in sources] + ["Search archive.org...", "Other URL...", "Update tool..."]
         i = tui_menu(win, "Archive Downloader - source", labels, "Up/Down  Enter=choose  Esc=quit")
         if i is None:
             return EXIT_INSTALLED if installed else 0
         if i < len(sources):
             system, url = sources[i][0], sources[i][2]
+        elif i == len(sources) + 2:
+            if tui_update(win):
+                return EXIT_INSTALLED if installed else 0
+            continue
         else:
             url = tui_search(win) if i == len(sources) else tui_ask_url(win)
             if not url:
@@ -808,6 +878,7 @@ def main(argv=None):
     p.add_argument("url2", nargs="?", help=argparse.SUPPRESS)
     p.add_argument("--source", help="system defined in archive_sources.conf")
     p.add_argument("--list-sources", action="store_true")
+    p.add_argument("--update", action="store_true", help="update the tool from the GitHub repository")
     p.add_argument("--search", metavar="QUERY", help="search archive.org software items and print the results")
     p.add_argument("--system", help="destination system (name in es_systems.cfg)")
     p.add_argument("--sd", help="SD card mount point (PC use)")
@@ -827,6 +898,14 @@ def main(argv=None):
     try:
         if args.tui:
             return run_tui(args)
+        if args.update:
+            changed = check_update()
+            if not changed:
+                print("Already up to date.")
+                return 0
+            apply_update(changed)
+            print("Updated: %s" % ", ".join(n for n, _d in changed))
+            return 0
         if args.search:
             for r in search_items(args.search):
                 print("%s\t%s\t%s" % (r["id"], human(r["size"]), r["title"]))
