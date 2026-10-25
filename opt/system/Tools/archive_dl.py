@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.5.3"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.5.5"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -276,15 +276,20 @@ def human(n):
         n /= 1024.0
 
 
-def md5_of(path):
+def md5_of(path, on_progress=None):
+    """MD5 of a file; on_progress(done, total) is called after each chunk (hashing a big file takes a while)."""
     h = hashlib.md5()
+    total, done = os.path.getsize(path), 0
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(CHUNK), b""):
             h.update(chunk)
+            done += len(chunk)
+            if on_progress:
+                on_progress(done, total)
     return h.hexdigest()
 
 
-def download(identifier, entry, dest, on_progress=None):
+def download(identifier, entry, dest, on_progress=None, on_verify=None):
     """Download to dest (via dest.part) with resume and MD5 check."""
     url = entry.get("url") or "https://archive.org/download/%s/%s" % (
         urllib.parse.quote(identifier), urllib.parse.quote(entry["name"]))
@@ -333,7 +338,7 @@ def download(identifier, entry, dest, on_progress=None):
         if total and os.path.getsize(part) < total:
             continue  # connection dropped: a second attempt resumes from the .part
         break
-    if entry["md5"] and md5_of(part) != entry["md5"]:
+    if entry["md5"] and md5_of(part, on_verify) != entry["md5"]:
         os.remove(part)
         raise Error("MD5 mismatch for %s" % entry["name"])
     if not entry["md5"] and total and os.path.getsize(part) != total:  # zip member: no checksum, size only
@@ -384,8 +389,9 @@ def resolve_rom_dir(system, systems, sd=None):
     return path, exts
 
 
-def install(part, name, dest_dir, exts):
-    """Move/extract the downloaded file. Return a description."""
+def install(part, name, dest_dir, exts, stage=None):
+    """Move/extract the downloaded file. Return a description.
+    stage(text, done, total), if given, is called while unpacking and moving (progress in bytes)."""
     base = os.path.basename(name)
     ext = os.path.splitext(base)[1].lower()
     final = os.path.join(dest_dir, base)
@@ -399,8 +405,16 @@ def install(part, name, dest_dir, exts):
     try:
         if ext == ".zip":
             with zipfile.ZipFile(part) as z:
-                z.extractall(tmp)
+                infos = z.infolist()
+                total, done = sum(i.file_size for i in infos), 0
+                for n, info in enumerate(infos):
+                    z.extract(info, tmp)
+                    done += info.file_size
+                    if stage and (n % 8 == 0 or n + 1 == len(infos)):
+                        stage("Unpacking", done, total)
         else:
+            if stage:
+                stage("Unpacking", 0, 0)  # 7z gives no progress: at least say what is happening
             tool = next((t for t in ("7z", "7za", "7zr") if shutil.which(t)), None)
             if not tool:
                 os.replace(part, final)
@@ -415,13 +429,15 @@ def install(part, name, dest_dir, exts):
         wrap = len(entries) > 1 and not launcher
         target = os.path.join(dest_dir, os.path.splitext(base)[0]) if wrap else dest_dir
         os.makedirs(target, exist_ok=True)
-        for name in entries:
+        for k, name in enumerate(entries):
+            if stage:
+                stage("Installing", 1, 1)
             src = os.path.join(tmp, name)
             dst = os.path.join(target, name)
-            if os.path.isdir(src):
-                shutil.copytree(src, dst, dirs_exist_ok=True)
+            if os.path.isdir(src) and os.path.exists(dst):
+                shutil.copytree(src, dst, dirs_exist_ok=True)  # merge into the existing folder
             else:
-                os.replace(src, dst)
+                os.replace(src, dst)  # same partition: a rename, no copy
     except (zipfile.BadZipFile, subprocess.CalledProcessError, OSError) as e:
         raise Error("Extraction failed for %s: %s" % (base, e))
     finally:
@@ -531,8 +547,19 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         base = os.path.basename(e["name"])
         final = os.path.join(dest_dir, base)
         label = "[%d/%d] %s" % (i + 1, len(entries), base)
-        present = os.path.exists(final) and (md5_of(final) == e["md5"] if e["md5"]
-                                             else bool(e["size"]) and os.path.getsize(final) == e["size"])
+        def stage(text, done, total, i=i, base=base, size=e["size"], before=before):
+            if hook:  # the bar stays where it is, the label says what is going on
+                hook(overall_pct(before + size, grand, i + 1, len(entries)),
+                     "[%d/%d] %s %s" % (i + 1, len(entries), text, base), done, total, before + size, grand)
+
+        # a file of another size cannot be the same one: hash only when the size matches
+        present = os.path.exists(final) and (os.path.getsize(final) == e["size"] if e["size"] else bool(e["md5"]))
+        if present and e["md5"]:
+            def checking(done, total, i=i, base=base, before=before):
+                if hook:
+                    hook(overall_pct(before, grand, i, len(entries)), "[%d/%d] Checking existing %s" % (i + 1, len(entries), base),
+                         done, total, before, grand)
+            present = md5_of(final, checking) == e["md5"]
         if present:
             log("skip %s (already present)" % base)
             if skipped is not None:
@@ -556,9 +583,10 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
                 sys.stdout.flush()
         try:
             log("download %s (%d bytes)" % (base, e["size"]))
-            part = download(identifier, e, os.path.join(dest_dir, base), progress)
+            part = download(identifier, e, os.path.join(dest_dir, base), progress,
+                            lambda done, total: stage("Verifying", done, total))
             log("install %s" % base)
-            desc = install(part, e["name"], dest_dir, exts)
+            desc = install(part, e["name"], dest_dir, exts, stage)
             log("installed %s" % base)
             before += e["size"]
             if not gauge and not hook:
