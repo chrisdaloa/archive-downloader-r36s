@@ -4,3 +4,5 @@ __pycache__/
 *.new
 opt/system/Tools/archive_auth.conf
 opt/system/Tools/cache/
+opt/system/Tools/archive_dl.log
+opt/system/Tools/archive_dl.log.old

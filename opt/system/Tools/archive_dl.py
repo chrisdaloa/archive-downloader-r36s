@@ -16,6 +16,7 @@ sources / files / get (dialog-friendly output).
 import argparse
 import configparser
 import hashlib
+import http.client
 import os
 import re
 import shutil
@@ -32,9 +33,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.4.2"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.4.4"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
+DL_ATTEMPTS = 6  # per file, each one resuming from the .part
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
 
 EXT_TO_SYSTEM = {
@@ -288,7 +290,9 @@ def download(identifier, entry, dest, on_progress=None):
         urllib.parse.quote(identifier), urllib.parse.quote(entry["name"]))
     part = dest + ".part"
     total = entry["size"]
-    for _attempt in range(2):
+    for attempt in range(DL_ATTEMPTS):
+        if attempt:
+            time.sleep(min(2 * attempt, 10))  # flaky Wi-Fi: wait a little, then resume from the .part
         have = os.path.getsize(part) if os.path.exists(part) else 0
         if total and have > total:
             os.remove(part)
@@ -303,20 +307,29 @@ def download(identifier, entry, dest, on_progress=None):
                 raise Error("Login required for %s: add your archive.org keys to archive_auth.conf" % entry["name"])
             raise Error("HTTP %d while downloading %s" % (e.code, entry["name"]))
         except (urllib.error.URLError, OSError) as e:
-            raise Error("Network error: %s" % e)
-        with r:
-            if have and r.status != 206:  # server ignores Range: restart from zero
-                have = 0
-            with open(part, "ab" if have else "wb") as f:
-                done = have
-                while True:
-                    chunk = r.read(DL_CHUNK)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    done += len(chunk)
-                    if on_progress:
-                        on_progress(done, total)
+            log("connect error on %s: %s (attempt %d)" % (entry["name"], e, attempt + 1))
+            if attempt + 1 == DL_ATTEMPTS:
+                raise Error("Network error: %s" % e)
+            continue
+        try:
+            with r:
+                if have and r.status != 206:  # server ignores Range: restart from zero
+                    have = 0
+                with open(part, "ab" if have else "wb") as f:
+                    done = have
+                    while True:
+                        chunk = r.read(DL_CHUNK)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        done += len(chunk)
+                        if on_progress:
+                            on_progress(done, total)
+        except (OSError, http.client.HTTPException) as e:  # timeout / reset in mid-transfer
+            log("read error on %s: %s (attempt %d)" % (entry["name"], e, attempt + 1))
+            if attempt + 1 == DL_ATTEMPTS:
+                raise Error("Connection lost while downloading %s" % entry["name"])
+            continue
         if total and os.path.getsize(part) < total:
             continue  # connection dropped: a second attempt resumes from the .part
         break
@@ -478,6 +491,29 @@ def update_gamelist(dest_dir):
     return touched
 
 
+LOG = os.path.join(HERE, "archive_dl.log")
+
+
+def log(msg):
+    """Append a timestamped line to archive_dl.log (flushed to disk) to diagnose stalls; never raises."""
+    try:
+        if os.path.exists(LOG) and os.path.getsize(LOG) > 100000:
+            os.replace(LOG, LOG + ".old")
+        mem = ""
+        try:
+            with open("/proc/meminfo") as fh:
+                m = dict(l.split(":", 1) for l in fh if ":" in l)
+            mem = " [free %s, dirty %s]" % (m["MemAvailable"].strip(), m["Dirty"].strip())
+        except (OSError, KeyError):
+            pass
+        with open(LOG, "a", encoding="utf-8") as fh:
+            fh.write("%s %s%s\n" % (time.strftime("%H:%M:%S"), msg, mem))
+            fh.flush()
+            os.fsync(fh.fileno())
+    except OSError:
+        pass
+
+
 def overall_pct(done, grand, files_done, n_files):
     """Percentage of the whole queue: by bytes when sizes are known, else by number of files."""
     if grand:
@@ -516,13 +552,17 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
                 sys.stdout.write("\r%s %3d%%" % (label[:60], done * 100 // total if total else 0))
                 sys.stdout.flush()
         try:
+            log("download %s (%d bytes)" % (base, e["size"]))
             part = download(identifier, e, os.path.join(dest_dir, base), progress)
+            log("install %s" % base)
             desc = install(part, e["name"], dest_dir, exts)
+            log("installed %s" % base)
             before += e["size"]
             if not gauge and not hook:
                 print("\r%s: OK -> %s" % (label[:60], desc))
-        except Error as err:
+        except (Error, OSError) as err:
             errors.append(str(err))
+            log("ERROR %s: %s" % (base, err))
             before += e["size"]
             if not hook:
                 print(("\n" if not gauge else "") + "ERROR: %s" % err, file=sys.stderr, flush=True)
