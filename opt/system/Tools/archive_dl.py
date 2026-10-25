@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.4.1"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.4.2"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
@@ -478,10 +478,19 @@ def update_gamelist(dest_dir):
     return touched
 
 
+def overall_pct(done, grand, files_done, n_files):
+    """Percentage of the whole queue: by bytes when sizes are known, else by number of files."""
+    if grand:
+        return min(100, int(done * 100 // grand))
+    return min(100, int(files_done * 100 // n_files))
+
+
 def install_entries(identifier, entries, system, systems, sd, gauge=False, out=print, hook=None):
     dest_dir, exts = resolve_rom_dir(system, systems, sd)
     os.makedirs(dest_dir, exist_ok=True)
     errors = []
+    grand = sum(e["size"] for e in entries)  # progress is weighted by size, so a 1 KB file does not count like a 1 GB one
+    before = 0  # bytes of the entries already handled
     for i, e in enumerate(entries):
         base = os.path.basename(e["name"])
         final = os.path.join(dest_dir, base)
@@ -489,16 +498,18 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         present = os.path.exists(final) and (md5_of(final) == e["md5"] if e["md5"]
                                              else bool(e["size"]) and os.path.getsize(final) == e["size"])
         if present:
+            before += e["size"]
             if hook:
-                hook((i + 1) * 100 // len(entries), label + " (already present)", e["size"], e["size"])
+                hook(overall_pct(before, grand, i + 1, len(entries)), label + " (already present)",
+                     e["size"], e["size"], before, grand)
             else:
                 out("%s: already present" % label)
             continue
 
-        def progress(done, total, i=i, label=label):
-            pct = (i * 100 + (done * 100 // total if total else 0)) // len(entries)
+        def progress(done, total, i=i, label=label, before=before):
+            pct = overall_pct(before + done, grand, i + (done / total if total else 0), len(entries))
             if hook:
-                hook(pct, label, done, total)
+                hook(pct, label, done, total, before + done, grand)
             elif gauge:
                 print("XXX\n%d\n%s\nXXX" % (pct, label), flush=True)
             else:
@@ -507,10 +518,12 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         try:
             part = download(identifier, e, os.path.join(dest_dir, base), progress)
             desc = install(part, e["name"], dest_dir, exts)
+            before += e["size"]
             if not gauge and not hook:
                 print("\r%s: OK -> %s" % (label[:60], desc))
         except Error as err:
             errors.append(str(err))
+            before += e["size"]
             if not hook:
                 print(("\n" if not gauge else "") + "ERROR: %s" % err, file=sys.stderr, flush=True)
     if ".sh" in exts:
@@ -890,7 +903,7 @@ def tui_download(win, identifier, entries, system, systems, sd):
     grand = sum(e["size"] for e in entries)
     st = {"label": None, "t0": 0.0, "d0": 0, "draw": 0.0}
 
-    def hook(pct, label, done=0, total=0):
+    def hook(pct, label, done=0, total=0, all_done=0, all_total=0):
         now = time.time()
         win.nodelay(True)  # poll the keyboard: A / Esc cancels (the .part file is kept)
         try:
@@ -910,10 +923,10 @@ def tui_download(win, identifier, entries, system, systems, sd):
         h, w = win.getmaxyx()
         _frame(win, "Download", "A=cancel (resumable)")
         _put(win, 2, 1, label)
-        _put(win, 3, 1, "File: %s / %s   Total: %s" % (human(done), human(total), human(grand)))
+        _put(win, 3, 1, "File: %s / %s   Queue: %s / %s" % (human(done), human(total), human(all_done), human(grand)))
         speed = (done - st["d0"]) / (now - st["t0"]) if now - st["t0"] >= 1 else 0
         if speed > 0:
-            eta = int((total - done) / speed) if total > done else 0
+            eta = int((grand - all_done) / speed) if grand > all_done else 0  # whole queue, at the current speed
             _put(win, 5, 1, "Speed: %s/s   ETA: %d:%02d:%02d" % (human(speed), eta // 3600, eta % 3600 // 60, eta % 60))
         bar = max(10, w - 10)
         fill = bar * pct // 100
