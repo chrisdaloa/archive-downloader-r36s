@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.5.0"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.5.1"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -521,7 +521,7 @@ def overall_pct(done, grand, files_done, n_files):
     return min(100, int(files_done * 100 // n_files))
 
 
-def install_entries(identifier, entries, system, systems, sd, gauge=False, out=print, hook=None):
+def install_entries(identifier, entries, system, systems, sd, gauge=False, out=print, hook=None, skipped=None):
     dest_dir, exts = resolve_rom_dir(system, systems, sd)
     os.makedirs(dest_dir, exist_ok=True)
     errors = []
@@ -534,6 +534,9 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
         present = os.path.exists(final) and (md5_of(final) == e["md5"] if e["md5"]
                                              else bool(e["size"]) and os.path.getsize(final) == e["size"])
         if present:
+            log("skip %s (already present)" % base)
+            if skipped is not None:
+                skipped.append(base)
             before += e["size"]
             if hook:
                 hook(overall_pct(before, grand, i + 1, len(entries)), label + " (already present)",
@@ -892,12 +895,26 @@ def linked_zip(url, files):
     return None
 
 
+NOT_GAME_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".mp4", ".avi", ".mkv", ".xml", ".txt",
+                ".nfo", ".pdf", ".db")
+NOT_GAME_DIRS = ("media", "images", "videos", "manuals", "boxart", "snaps", "screenshots", "covers", "marquees")
+
+
+def game_members(members):
+    """Drop what is not a game from a zip index: scraped artwork/videos/manuals and gamelist/metadata files.
+    If that would leave nothing, keep everything."""
+    keep = [m for m in members
+            if not m["name"].lower().endswith(NOT_GAME_EXT)
+            and not any(part.lower() in NOT_GAME_DIRS for part in m["name"].split("/")[:-1])]
+    return keep or members
+
+
 def tui_zip_members(win, identifier, zipfile_entry, files=()):
     """Browse the files inside a zip of the item. Return the chosen members, or None to go back.
     Romset names (e.g. 1941.zip) get their full title from the item's .dat, when it has one."""
     tui_message(win, "Archive Downloader", ["Reading zip index..."], wait=False)
     try:
-        members = list_zip_members(identifier, zipfile_entry["name"])
+        members = game_members(list_zip_members(identifier, zipfile_entry["name"]))
     except Error as e:
         tui_message(win, "Error", [str(e)])
         return None
@@ -1000,7 +1017,8 @@ def tui_download(win, identifier, entries, system, systems, sd):
 
     try:
         hook(0, "Starting...")
-        dest, errors = install_entries(identifier, entries, system, systems, sd, hook=hook)
+        skipped = []
+        dest, errors = install_entries(identifier, entries, system, systems, sd, hook=hook, skipped=skipped)
     except Cancelled:
         tui_message(win, "Cancelled", ["Download stopped.", "Partial files (.part) are kept: run it again to resume."])
         return False
@@ -1008,8 +1026,13 @@ def tui_download(win, identifier, entries, system, systems, sd):
         tui_message(win, "Error", [str(e)])
         return False
     lines = ["Folder: " + dest] + ["ERROR: " + e for e in errors[:6]]
-    if not errors:
-        lines.insert(0, "Completed (%d files)." % len(entries))
+    if skipped:
+        lines.insert(0, "%d already present, not downloaded again." % len(skipped))
+    done = len(entries) - len(skipped) - len(errors)
+    if done:
+        lines.insert(0, "Downloaded and installed: %d." % done)
+    elif not errors:
+        lines.insert(0, "Nothing new: all files were already there.")
     tui_message(win, "Result", lines)
     return len(errors) < len(entries)
 
