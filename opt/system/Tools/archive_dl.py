@@ -19,6 +19,7 @@ import hashlib
 import http.client
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -33,11 +34,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.5.5"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.5.6"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
 DL_CHUNK = 1024 * 32  # network read size: small, so the TUI can react to a cancel quickly
+DL_CONNECT = 8  # seconds to open a connection
+DL_POLL = 0.5  # seconds without data after which the screen/keyboard is serviced again
+DL_STALL = 30  # seconds without a single byte before the connection is given up and retried
 
 EXT_TO_SYSTEM = {
     ".gba": "gba", ".gb": "gb", ".gbc": "gbc", ".nes": "nes", ".fds": "fds",
@@ -289,22 +293,38 @@ def md5_of(path, on_progress=None):
     return h.hexdigest()
 
 
-def download(identifier, entry, dest, on_progress=None, on_verify=None):
-    """Download to dest (via dest.part) with resume and MD5 check."""
+def _raw_socket(r):
+    """The socket under an open response (CPython internals), or None."""
+    try:
+        return r.fp.raw._sock
+    except AttributeError:
+        return None
+
+
+def download(identifier, entry, dest, on_progress=None, on_verify=None, on_wait=None):
+    """Download to dest (via dest.part) with resume and MD5 check.
+    on_wait(text, done, total) is called while waiting for the network (retry pause, stalled link)."""
     url = entry.get("url") or "https://archive.org/download/%s/%s" % (
         urllib.parse.quote(identifier), urllib.parse.quote(entry["name"]))
     part = dest + ".part"
     total = entry["size"]
     for attempt in range(DL_ATTEMPTS):
-        if attempt:
-            time.sleep(min(2 * attempt, 10))  # flaky Wi-Fi: wait a little, then resume from the .part
         have = os.path.getsize(part) if os.path.exists(part) else 0
+        if attempt:  # flaky Wi-Fi: wait a little (answering the keyboard meanwhile), then resume from the .part
+            end = time.time() + min(2 * attempt, 10)
+            while time.time() < end:
+                if on_wait:
+                    on_wait("Network problem, retrying in %ds (%d/%d)" % (end - time.time() + 0.5, attempt + 1, DL_ATTEMPTS),
+                            have, total)
+                time.sleep(0.25)
         if total and have > total:
             os.remove(part)
             have = 0
         headers = {"Range": "bytes=%d-" % have} if have else {}
         try:
-            r = http_open(url, headers)
+            if attempt and on_wait:
+                on_wait("Reconnecting (%d/%d)" % (attempt + 1, DL_ATTEMPTS), have, total)
+            r = http_open(url, headers, timeout=DL_CONNECT)
         except urllib.error.HTTPError as e:
             if e.code == 416 and have:  # already complete
                 break
@@ -320,12 +340,22 @@ def download(identifier, entry, dest, on_progress=None, on_verify=None):
             with r:
                 if have and r.status != 206:  # server ignores Range: restart from zero
                     have = 0
+                sock = _raw_socket(r)
                 with open(part, "ab" if have else "wb") as f:
                     done = have
+                    last = time.time()  # last time a byte arrived
                     while True:
-                        chunk = r.read(DL_CHUNK)
+                        # read1(DL_CHUNK) drains the reader's buffer, so waiting on the socket alone is enough
+                        if sock and not select.select([sock], [], [], DL_POLL)[0]:
+                            if time.time() - last > DL_STALL:
+                                raise OSError("no data for %d s" % DL_STALL)
+                            if on_wait:  # nothing arrived: let the TUI redraw and read the keyboard
+                                on_wait("Waiting for data (%ds)" % (time.time() - last), done, total)
+                            continue
+                        chunk = r.read1(DL_CHUNK)
                         if not chunk:
                             break
+                        last = time.time()
                         f.write(chunk)
                         done += len(chunk)
                         if on_progress:
@@ -583,8 +613,13 @@ def install_entries(identifier, entries, system, systems, sd, gauge=False, out=p
                 sys.stdout.flush()
         try:
             log("download %s (%d bytes)" % (base, e["size"]))
+            def waiting(text, done, total, i=i, label=label, before=before):
+                if hook:
+                    hook(overall_pct(before + done, grand, i + (done / total if total else 0), len(entries)),
+                         label, done, total, before + done, grand, text)
+
             part = download(identifier, e, os.path.join(dest_dir, base), progress,
-                            lambda done, total: stage("Verifying", done, total))
+                            lambda done, total: stage("Verifying", done, total), waiting)
             log("install %s" % base)
             desc = install(part, e["name"], dest_dir, exts, stage)
             log("installed %s" % base)
@@ -1015,7 +1050,7 @@ def tui_download(win, identifier, entries, system, systems, sd):
     grand = sum(e["size"] for e in entries)
     st = {"label": None, "t0": 0.0, "d0": 0, "draw": 0.0}
 
-    def hook(pct, label, done=0, total=0, all_done=0, all_total=0):
+    def hook(pct, label, done=0, total=0, all_done=0, all_total=0, note=None):
         now = time.time()
         win.nodelay(True)  # poll the keyboard: A / Esc cancels (the .part file is kept)
         try:
@@ -1029,7 +1064,7 @@ def tui_download(win, identifier, entries, system, systems, sd):
             win.nodelay(False)
         if label != st["label"]:
             st.update(label=label, t0=now, d0=done, draw=0.0)
-        if now - st["draw"] < 0.25 and pct < 100:
+        if now - st["draw"] < 0.25 and pct < 100 and not note:
             return
         st["draw"] = now
         h, w = win.getmaxyx()
@@ -1037,7 +1072,9 @@ def tui_download(win, identifier, entries, system, systems, sd):
         _put(win, 2, 1, label)
         _put(win, 3, 1, "File: %s / %s   Queue: %s / %s" % (human(done), human(total), human(all_done), human(grand)))
         speed = (done - st["d0"]) / (now - st["t0"]) if now - st["t0"] >= 1 else 0
-        if speed > 0:
+        if note:
+            _put(win, 5, 1, note)
+        elif speed > 0:
             eta = int((grand - all_done) / speed) if grand > all_done else 0  # whole queue, at the current speed
             _put(win, 5, 1, "Speed: %s/s   ETA: %d:%02d:%02d" % (human(speed), eta // 3600, eta % 3600 // 60, eta % 60))
         bar = max(10, w - 10)
