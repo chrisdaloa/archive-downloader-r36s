@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.5.2"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.5.3"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -797,15 +797,16 @@ def is_browsable(f):
     return not f.get("url") and f["name"].lower().endswith(".zip") and f["size"] >= BROWSE_ZIP_MIN
 
 
-def _row_label(f, chosen):
-    mark = "x" if f["name"] in chosen else (">" if is_browsable(f) else " ")
+def _row_label(f, chosen, browse=True):
+    mark = "x" if f["name"] in chosen else (">" if browse and is_browsable(f) else " ")
     return "[%s] %s (%s)" % (mark, f.get("title") or f["name"], human(f["size"]))
 
 
-def tui_checklist(win, title, files, chosen=None):
+def tui_checklist(win, title, files, chosen=None, browse=True):
     """Return the list of chosen files, ("open", file) to browse a zip, or None to go back.
     Enter = open a big zip / toggle, Space = toggle, d (X on the gamepad) = download (the zip under the cursor
-    if nothing is ticked), a (Y) = all, o (Start) = open a zip, / or f (L2) = filter."""
+    if nothing is ticked), a (Y) = all, o (Start) = open a zip, / or f (L2) = filter.
+    browse=False (ports: each zip is a whole game) turns off opening big zips with Enter."""
     import curses
     chosen = set() if chosen is None else chosen
     flt = ""
@@ -833,18 +834,18 @@ def tui_checklist(win, title, files, chosen=None):
             if i >= len(view):
                 break
             f = view[i]
-            label = _row_label(f, chosen)
+            label = _row_label(f, chosen, browse)
             if i == cur:
                 label = marquee(label, w - 3, tick)
             _put(win, 1 + r, 0, ("> " if i == cur else "  ") + label,
                  curses.A_REVERSE if i == cur else 0)
         win.refresh()
-        k = _getch(win, bool(view) and len(_row_label(view[cur], chosen)) > w - 3)
+        k = _getch(win, bool(view) and len(_row_label(view[cur], chosen, browse)) > w - 3)
         if k == -1:
             tick += 1
             continue
         tick = 0
-        if k in (10, 13, curses.KEY_ENTER) and view and is_browsable(view[cur]):
+        if k in (10, 13, curses.KEY_ENTER) and view and browse and is_browsable(view[cur]):
             return ("open", view[cur])
         if k in (10, 13, curses.KEY_ENTER, ord(" ")):
             if view:
@@ -852,7 +853,7 @@ def tui_checklist(win, title, files, chosen=None):
         elif k in (ord("d"), ord("D")):
             if chosen:
                 return [f for f in files if f["name"] in chosen]
-            if view and is_browsable(view[cur]):
+            if view and browse and is_browsable(view[cur]):
                 return [view[cur]]  # nothing ticked: the zip under the cursor, whole
             note = "No file selected"
         elif k in (ord("o"), ord("O")):
@@ -962,10 +963,10 @@ def tui_confirm(win, entries, system, systems, sd):
             probe = os.path.dirname(probe)
         free = human(shutil.disk_usage(probe).free)
     except (Error, OSError):
-        dest, free = "?", "?"
+        dest, free, _exts = "?", "?", ()
     lines = ["File: %d" % len(entries), "Total size: %s" % human(total),
              "Free space: %s" % free, "System: %s" % system, "Folder: %s" % dest]
-    if any(is_browsable(e) for e in entries):
+    if any(is_browsable(e) for e in entries) and ".sh" not in _exts:
         lines += ["", "WARNING: whole zip of a collection.", "The games stay packed inside it;",
                   "to install them, go back and open it."]
     _frame(win, "Confirm download", "B=download  A=cancel")
@@ -1105,7 +1106,9 @@ def _tui_main(win, args):
             tui_message(win, "Error", [str(e)])
             continue
         chosen = set()
-        auto = dominant_zip(files) or linked_zip(url, files)  # one giant romset, or a zip the source links to: show its index
+        # ports: every zip is a whole game, so none is browsed
+        browse = not (system and ".sh" in systems.get(system, (None, ()))[1])
+        auto = (dominant_zip(files) or linked_zip(url, files)) if browse else None  # one giant romset, or a zip the source links to: show its index
         hint = auto["name"] if auto else None
         while True:
             if auto:
@@ -1113,7 +1116,7 @@ def _tui_main(win, args):
                 if not entries:
                     break  # back: to the source list, not to the one giant file
             else:
-                entries = tui_checklist(win, "File (%s)" % (system or "auto"), files, chosen)
+                entries = tui_checklist(win, "File (%s)" % (system or "auto"), files, chosen, browse)
                 if not entries:
                     break
                 if isinstance(entries, tuple):
