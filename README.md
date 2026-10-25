@@ -7,6 +7,8 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 
 ## Installing on the SD card
 
+This works on a card you already use: the games, saves and settings on it are not touched, you only add the tool's files.
+
 The console's ROM partition (the big exFAT one, usually labelled `EASYROMS`) has a `tools` folder: it is what EmulationStation shows under **Tools**. It is `/opt/system/Tools/` on the console.
 
 1. Power off the console and put its SD card in the PC (or use a card reader).
