@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.4.4"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.5.0"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -786,13 +786,23 @@ def tui_search(win):
     return None if i is None else "https://archive.org/details/" + results[i]["id"]
 
 
+BROWSE_ZIP_MIN = 200 << 20  # an item's .zip at least this big is a collection: Enter opens its index
+
+
+def is_browsable(f):
+    """A big .zip of the item itself (not a member listed from a zip index): worth browsing, not downloading whole."""
+    return not f.get("url") and f["name"].lower().endswith(".zip") and f["size"] >= BROWSE_ZIP_MIN
+
+
 def _row_label(f, chosen):
-    return "[%s] %s (%s)" % ("x" if f["name"] in chosen else " ", f.get("title") or f["name"], human(f["size"]))
+    mark = "x" if f["name"] in chosen else (">" if is_browsable(f) else " ")
+    return "[%s] %s (%s)" % (mark, f.get("title") or f["name"], human(f["size"]))
 
 
 def tui_checklist(win, title, files, chosen=None):
     """Return the list of chosen files, ("open", file) to browse a zip, or None to go back.
-    Enter/Space = toggle, d (X on the gamepad) = download, a (Y) = all, o (Start) = open a zip."""
+    Enter = open a big zip / toggle, Space = toggle, d (X on the gamepad) = download (the zip under the cursor
+    if nothing is ticked), a (Y) = all, o (Start) = open a zip."""
     import curses
     chosen = set() if chosen is None else chosen
     flt = ""
@@ -806,7 +816,7 @@ def tui_checklist(win, title, files, chosen=None):
         _, w = win.getmaxyx()
         head = "%s%s  [%d sel, %s / total %s]" % (title, " /" + flt if flt else "", len(chosen), human(total),
                                               human(sum(f["size"] for f in files)))
-        _frame(win, head, note or "B=toggle  X=download  Y=all  Start=open zip  A=back")
+        _frame(win, head, note or "B=open/toggle  X=download  Y=all  A=back")
         note = ""
         h, _w = win.getmaxyx()
         rows = h - 2
@@ -830,12 +840,16 @@ def tui_checklist(win, title, files, chosen=None):
             tick += 1
             continue
         tick = 0
+        if k in (10, 13, curses.KEY_ENTER) and view and is_browsable(view[cur]):
+            return ("open", view[cur])
         if k in (10, 13, curses.KEY_ENTER, ord(" ")):
             if view:
                 chosen ^= {view[cur]["name"]}
         elif k in (ord("d"), ord("D")):
             if chosen:
                 return [f for f in files if f["name"] in chosen]
+            if view and is_browsable(view[cur]):
+                return [view[cur]]  # nothing ticked: the zip under the cursor, whole
             note = "No file selected"
         elif k in (ord("o"), ord("O")):
             if view and view[cur]["name"].lower().endswith(".zip") and not view[cur].get("url"):
@@ -867,6 +881,14 @@ def dominant_zip(files):
     big = max(zips, key=lambda f: f["size"], default=None)
     if big and big["size"] >= BIG_ZIP and big["size"] >= total * 0.9:
         return big
+    return None
+
+
+def linked_zip(url, files):
+    """The .zip a source URL points at (e.g. /download/<id>/dir/gba.zip), when it is big enough to browse."""
+    single = parse_url(url)[1]
+    if single and len(files) == 1 and files[0]["name"] == single and is_browsable(files[0]):
+        return files[0]
     return None
 
 
@@ -925,6 +947,9 @@ def tui_confirm(win, entries, system, systems, sd):
         dest, free = "?", "?"
     lines = ["File: %d" % len(entries), "Total size: %s" % human(total),
              "Free space: %s" % free, "System: %s" % system, "Folder: %s" % dest]
+    if any(is_browsable(e) for e in entries):
+        lines += ["", "WARNING: whole zip of a collection.", "The games stay packed inside it;",
+                  "to install them, go back and open it."]
     _frame(win, "Confirm download", "B=download  A=cancel")
     for i, line in enumerate(lines):
         _put(win, 2 + i, 1, line)
@@ -1056,7 +1081,8 @@ def _tui_main(win, args):
             tui_message(win, "Error", [str(e)])
             continue
         chosen = set()
-        auto = dominant_zip(files)  # one giant romset: its index is the file list
+        auto = dominant_zip(files) or linked_zip(url, files)  # one giant romset, or a zip the source links to: show its index
+        hint = auto["name"] if auto else None
         while True:
             if auto:
                 entries = tui_zip_members(win, identifier, auto, files)
@@ -1067,11 +1093,19 @@ def _tui_main(win, args):
                 if not entries:
                     break
                 if isinstance(entries, tuple):
+                    hint = entries[1]["name"]
                     entries = tui_zip_members(win, identifier, entries[1], files)
                     if not entries:
                         continue
+                else:
+                    hint = None
             try:
-                target = system or deduce_system(entries)
+                try:
+                    target = system or deduce_system(entries)
+                except Error:
+                    target = guess_system(entries, hint, systems)
+                    if not target:
+                        raise
             except Error as e:
                 tui_message(win, "Error", [str(e)])
                 break
@@ -1124,6 +1158,31 @@ def deduce_system(entries):
     if len(guessed) != 1:
         raise Error("Cannot deduce the system: use --system or --source")
     return guessed.pop()
+
+
+SYSTEM_ALIASES = {"genesis": "megadrive", "md": "megadrive", "sms": "mastersystem", "gg": "gamegear",
+                  "pce": "pcengine", "tg16": "pcengine", "famicom": "nes", "sfc": "snes"}
+
+
+def guess_system(entries, hint, systems):
+    """The system named by the zip (gamegear.zip) or by the folder the files sit in (gamegear/x.zip), when it
+    is one of the console's systems. Return None if unsure."""
+    known = {k.lower(): k for k in systems}
+    found = set()
+    for e in entries:
+        names = [os.path.dirname(e["name"]), os.path.splitext(os.path.basename(e["name"]))[0]]
+        if hint:
+            names = [os.path.splitext(os.path.basename(hint))[0]] + names
+        for tok in names:
+            for part in reversed(tok.lower().split("/")):
+                part = SYSTEM_ALIASES.get(part, part)
+                if part in known:
+                    found.add(known[part])
+                    break
+            else:
+                continue
+            break
+    return found.pop() if len(found) == 1 else None
 
 
 def pick_entries(files, args):
