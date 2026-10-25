@@ -115,6 +115,8 @@ sed -i 's/^b = .*/b = enter/; s/^a = .*/a = esc/' "$TMP_KEYS"
 sed -i 's/^x = .*/x = d/; s/^y = .*/y = a/' "$TMP_KEYS"
 # Start = open the .zip under the cursor to pick single files inside it
 sed -i 's/^start = .*/start = o/' "$TMP_KEYS"
+# L2 = filter the list by name (on-screen keyboard)
+sed -i 's/^l2 = .*/l2 = f/' "$TMP_KEYS"
 Start_GPTKeyb
 
 # =======================================================

@@ -38,8 +38,9 @@ Once installed, **Update tool...** keeps the files current from this repository,
 | X | download the ticked files |
 | Y | tick / untick all |
 | Start | open the `.zip` under the cursor and pick single files inside it |
-| A | back |
-| `/` (keyboard) | filter by name |
+| L2 | filter by name (opens the on-screen keyboard; empty text clears it) |
+| A | back (clears the filter first) |
+| `/` or `f` (keyboard) | filter by name |
 | `o` (keyboard) | same as Start |
 
 A row too long for the screen scrolls by itself while the cursor rests on it, so you can read the whole name and the size.

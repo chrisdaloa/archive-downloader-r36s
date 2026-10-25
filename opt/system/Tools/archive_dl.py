@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.5.1"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.5.2"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -805,7 +805,7 @@ def _row_label(f, chosen):
 def tui_checklist(win, title, files, chosen=None):
     """Return the list of chosen files, ("open", file) to browse a zip, or None to go back.
     Enter = open a big zip / toggle, Space = toggle, d (X on the gamepad) = download (the zip under the cursor
-    if nothing is ticked), a (Y) = all, o (Start) = open a zip."""
+    if nothing is ticked), a (Y) = all, o (Start) = open a zip, / or f (L2) = filter."""
     import curses
     chosen = set() if chosen is None else chosen
     flt = ""
@@ -819,7 +819,8 @@ def tui_checklist(win, title, files, chosen=None):
         _, w = win.getmaxyx()
         head = "%s%s  [%d sel, %s / total %s]" % (title, " /" + flt if flt else "", len(chosen), human(total),
                                               human(sum(f["size"] for f in files)))
-        _frame(win, head, note or "B=open/toggle  X=download  Y=all  A=back")
+        _frame(win, head, note or ("B=open/tick  X=get  Y=all  L2=filter  A=back" if GAMEPAD
+                         else "Enter=open/tick  d=download  a=all  /=filter  Esc=back"))
         note = ""
         h, _w = win.getmaxyx()
         rows = h - 2
@@ -861,8 +862,8 @@ def tui_checklist(win, title, files, chosen=None):
         elif k in (ord("a"), ord("A")):
             names = {f["name"] for f in view}
             chosen = chosen - names if names <= chosen else chosen | names
-        elif k == ord("/"):
-            new = tui_text(win, "Filter: ")
+        elif k in (ord("/"), ord("f"), ord("F")):
+            new = tui_ask(win, "Filter", "Filter: ")  # on the console: on-screen keyboard (L2)
             if new is not None:
                 flt, cur, top = new, 0, 0
         elif _is_back(k):
