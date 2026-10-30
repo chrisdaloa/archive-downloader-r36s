@@ -13,10 +13,9 @@ The console's ROM partition (the big exFAT one, usually labelled `EASYROMS`) has
 
 1. Power off the console and put its SD card in the PC (or use a card reader).
 2. Download this repository (green **Code** button → **Download ZIP**, or `git clone`).
-3. Copy these files from `opt/system/Tools/` into the `tools` folder of the ROM partition:
+3. Copy these from `opt/system/Tools/` into the `tools` folder of the ROM partition:
    - `Archive Downloader.sh`
-   - `archive_dl.py`
-   - `archive_sources.example.conf` (optional but handy: rename a copy to `archive_sources.conf` to edit the source list)
+   - the whole `archive_downloader` folder (the program, `archive_sources.example.conf`: optional but handy, copy it to `archive_sources.conf` inside the folder to edit the source list)
 4. Eject the card, put it back, boot the console. **Tools → Archive Downloader** appears (if not, restart EmulationStation).
 
 Once installed, **Update tool...** keeps the files current from this repository, so you only need to copy them by hand the first time. The console needs Python 3 (already included in dArkOS) and Wi-Fi.
@@ -63,14 +62,14 @@ Some items hold one big `.zip` with the whole collection (e.g. `GBC.zip`, hundre
 ## On a PC
 
 ```
-python3 archive_dl.py --tui --sd /media/$USER/<SD>
-python3 archive_dl.py --list-sources
-python3 archive_dl.py --search "advance wars"
-python3 archive_dl.py --update
-python3 archive_dl.py --gamelist --sd /media/SDCARD
-python3 archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "^GBC/1942 " --system gbc --sd /media/$USER/<SD>
-python3 archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
-python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
+python3 archive_downloader/archive_dl.py --tui --sd /media/$USER/<SD>
+python3 archive_downloader/archive_dl.py --list-sources
+python3 archive_downloader/archive_dl.py --search "advance wars"
+python3 archive_downloader/archive_dl.py --update
+python3 archive_downloader/archive_dl.py --gamelist --sd /media/SDCARD
+python3 archive_downloader/archive_dl.py https://archive.org/details/gbc_20240311 --zip GBC.zip --match "^GBC/1942 " --system gbc --sd /media/$USER/<SD>
+python3 archive_downloader/archive_dl.py --source gba --sd /media/$USER/<SD> --match "regex"
+python3 archive_downloader/archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 ```
 
 `--sd` is the mount point of the SD card; the ROM folder is read from `es_systems.cfg` (`--es-cfg` to point to another one).
@@ -79,10 +78,10 @@ python3 archive_dl.py <URL> --system gba --sd /media/$USER/<SD> --all
 
 A few items (e.g. the full PortMaster pack `portmaster_ports_202405`) can only be downloaded by logged-in users: without a login archive.org answers 401/403 and the tool says "Login required". Public items work with or without a login.
 
-**Where to put the keys:** in `archive_auth.conf`, next to `archive_dl.py`:
+**Where to put the keys:** in `archive_auth.conf`, in the `archive_downloader` folder, next to `archive_dl.py`:
 
-- on the console: `/opt/system/Tools/archive_auth.conf`
-- on a PC: `opt/system/Tools/archive_auth.conf` in this repository
+- on the console: `/opt/system/Tools/archive_downloader/archive_auth.conf`
+- on a PC: `opt/system/Tools/archive_downloader/archive_auth.conf` in this repository
 
 The file is listed in `.gitignore`, so git never tracks it and your keys are not pushed. Only the template `archive_auth.example.conf` is versioned, and the updater never touches your `archive_auth.conf`.
 
@@ -98,7 +97,7 @@ The file is listed in `.gitignore`, so git never tracks it and your keys are not
    Or from a PC, straight onto the console:
 
    ```
-   ssh ark@<console-ip> "printf '[archive.org]\naccess = XXX\nsecret = YYY\n' > /opt/system/Tools/archive_auth.conf"
+   ssh ark@<console-ip> "printf '[archive.org]\naccess = XXX\nsecret = YYY\n' > /opt/system/Tools/archive_downloader/archive_auth.conf"
    ```
 
 The keys are only sent to `archive.org` hosts. They are stored in clear text, and the ROM partition ignores file permissions, so anyone with the console or the SD card can read them: never commit or share the file. If they leak, regenerate them on the same archive.org page.
@@ -107,11 +106,11 @@ The keys are only sent to `archive.org` hosts. They are stored in clear text, an
 
 **Port covers.** After installing a PortMaster port, the tool reads each port's `gameinfo.xml` and adds its cover, description, developer and genre to `/roms/ports/gamelist.xml` (existing fields are never overwritten, the previous file is kept as `gamelist.xml.bak`). Scrapers usually find nothing for ports. Run `--gamelist` to do it for ports already installed; restart EmulationStation afterwards.
 
-**Update tool...** in the menu (or `--update` on a PC) compares `archive_dl.py`, `Archive Downloader.sh`, `archive_sources.example.conf` and `archive_auth.example.conf` with the `main` branch of this repository and replaces the ones that differ. Your `archive_sources.conf` and `archive_auth.conf` are never touched, the previous script is kept as `archive_dl.py.bak`, and nothing is written if the downloaded script does not compile. Relaunch the tool afterwards. The installed version is shown in the title of the main menu (`VERSION` in `archive_dl.py`, also `--version`); the update screen shows `vX -> vY`. Bump `VERSION` whenever a change should reach users. It needs Wi-Fi; it runs whatever is on `main`, so only use it if you trust the repository.
+**Update tool...** in the menu (or `--update` on a PC) compares `archive_dl.py`, `Archive Downloader.sh`, `archive_sources.example.conf` and `archive_auth.example.conf` with the `main` branch of this repository and replaces the ones that differ. Your `archive_sources.conf` and `archive_auth.conf` are never touched, the previous script is kept as `archive_dl.py.bak`. Installs older than v1.6.0 had every file directly in `Tools/`: they cannot self-update across the move, so copy the new layout by hand once (the tool then moves your two `.conf` files into the folder by itself), and nothing is written if the downloaded script does not compile. Relaunch the tool afterwards. The installed version is shown in the title of the main menu (`VERSION` in `archive_dl.py`, also `--version`); the update screen shows `vX -> vY`. Bump `VERSION` whenever a change should reach users. It needs Wi-Fi; it runs whatever is on `main`, so only use it if you trust the repository.
 
 ## Adding a source
 
-The repo only ships `archive_sources.example.conf`. Copy it to `archive_sources.conf` (same folder; it is not versioned) and edit it: if it exists, the tool uses that. On the console the folder is `/opt/system/Tools/`:
+The repo only ships `archive_sources.example.conf`. Copy it to `archive_sources.conf` (same `archive_downloader` folder; it is not versioned) and edit it: if it exists, the tool uses that. On the console the folder is `/opt/system/Tools/archive_downloader/`:
 
 ```ini
 [nes]
@@ -121,7 +120,7 @@ Display name = https://archive.org/details/item-identifier
 - The section is the system name in `es_systems.cfg` (`gba`, `psx`, `megadrive`, `ports`, `scummvm`...).
 - Accepted: `/details/<id>`, `/download/<id>` and `/download/<id>/<file>` (single file).
 - Lines starting with `#` are comments.
-- Check with `python3 archive_dl.py --list-sources`.
+- Check with `python3 archive_downloader/archive_dl.py --list-sources`.
 
 ## Troubleshooting
 

@@ -20,7 +20,7 @@ GPTOKEYB_PID=""
 CURR_TTY="/dev/tty1"
 TMP_KEYS="/tmp/keys.gptk.$$"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PY="$SCRIPT_DIR/archive_dl.py"
+PY="$SCRIPT_DIR/archive_downloader/archive_dl.py"
 export TERM=linux
 
 # =======================================================

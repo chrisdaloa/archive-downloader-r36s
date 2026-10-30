@@ -30,11 +30,12 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))  # .../Tools/archive_downloader
+TOOLS = os.path.dirname(HERE)  # .../Tools, where "Archive Downloader.sh" lives
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.5.6"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.6.0"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -219,8 +220,20 @@ def search_items(query, rows=50):
 
 
 UPDATE_BASE = "https://raw.githubusercontent.com/chrisdaloa/archive-downloader-r36s/main/opt/system/Tools/"
-UPDATE_FILES = ("archive_dl.py", "Archive Downloader.sh", "archive_sources.example.conf",
-                "archive_auth.example.conf")  # never archive_sources.conf / archive_auth.conf
+UPDATE_FILES = ("archive_downloader/archive_dl.py", "Archive Downloader.sh",
+                "archive_downloader/archive_sources.example.conf",
+                "archive_downloader/archive_auth.example.conf")  # never archive_sources.conf / archive_auth.conf, paths relative to Tools
+
+
+def migrate_old_layout():
+    """Before v1.6.0 the files sat directly in Tools/: bring the user's own conf files into the folder."""
+    for name in ("archive_sources.conf", "archive_auth.conf"):
+        old, new = os.path.join(TOOLS, name), os.path.join(HERE, name)
+        if os.path.isfile(old) and not os.path.exists(new):
+            try:
+                shutil.move(old, new)
+            except OSError:
+                pass
 
 
 def check_update():
@@ -232,7 +245,7 @@ def check_update():
                 data = r.read()
         except (urllib.error.URLError, OSError) as e:
             raise Error("Cannot reach the repository: %s" % e)
-        path = os.path.join(HERE, name)
+        path = os.path.join(TOOLS, name)
         old = None
         if os.path.exists(path):
             with open(path, "rb") as fh:
@@ -260,7 +273,7 @@ def apply_update(changed):
                 raise Error("Downloaded %s is not valid Python (%s): update aborted" % (name, e))
     try:
         for name, data in changed:
-            path = os.path.join(HERE, name)
+            path = os.path.join(TOOLS, name)
             mode = os.stat(path).st_mode if os.path.exists(path) else 0o644
             if os.path.exists(path):
                 shutil.copy2(path, path + ".bak")
@@ -1003,7 +1016,7 @@ def tui_update(win):
         if not changed:
             tui_message(win, "Update", ["Already up to date (v%s)." % VERSION])
             return False
-        latest = next((version_of(d) for n, d in changed if n == "archive_dl.py"), None) or VERSION
+        latest = next((version_of(d) for n, d in changed if n.endswith("archive_dl.py")), None) or VERSION
         label = "Update now (%s)" % ", ".join(n for n, _d in changed)
         if tui_menu(win, "Update available: v%s -> v%s" % (VERSION, latest), [label, "Cancel"]) != 0:
             return False
@@ -1317,6 +1330,7 @@ def main(argv=None):
     cmd = args.cmd_or_url if args.cmd_or_url in ("sources", "files", "get") else None
     args.url = args.url2 if cmd else args.cmd_or_url
 
+    migrate_old_layout()
     try:
         if args.tui:
             return run_tui(args)
@@ -1325,7 +1339,7 @@ def main(argv=None):
             if not changed:
                 print("Already up to date.")
                 return 0
-            latest = next((version_of(d) for n, d in changed if n == "archive_dl.py"), None)
+            latest = next((version_of(d) for n, d in changed if n.endswith("archive_dl.py")), None)
             apply_update(changed)
             print("Updated%s: %s" % (" to v" + latest if latest else "", ", ".join(n for n, _d in changed)))
             return 0
