@@ -5,7 +5,17 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 
 **Disclaimer:** use it only for content you have the rights to (backups of games you own, public domain, homebrew). You are solely responsible for what you download. The tool shows a notice at startup that you must accept with **B** (**A** to quit).
 
-## Installing on the SD card
+## Quick install over Wi-Fi
+
+With the console on Wi-Fi and SSH on (dArkOS default: user `ark`, password `ark`), run this on a PC on the same network:
+
+```
+ssh ark@<console-ip> 'curl -fsSL https://raw.githubusercontent.com/chrisdaloa/archive-downloader-r36s/main/install.sh | sh'
+```
+
+Then restart EmulationStation: **Tools → Archive Downloader**. It downloads the launcher and the program from `main` (see `install.sh`), and runs again safely to reinstall: your `archive_sources.conf` and `archive_auth.conf` are never touched.
+
+## Installing on the SD card (without Wi-Fi)
 
 This works on a card you already use: the games, saves and settings on it are not touched, you only add the tool's files.
 
