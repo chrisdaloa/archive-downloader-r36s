@@ -5,6 +5,22 @@ Works on the console (with Wi-Fi) and on a PC with the SD card inserted. Python 
 
 **Disclaimer:** use it only for content you have the rights to (backups of games you own, public domain, homebrew). You are solely responsible for what you download. The tool shows a notice at startup that you must accept with **B** (**A** to quit).
 
+## What is where
+
+```
+opt/system/Tools/                    (/opt/system/Tools/ on the console, the "tools" folder of the ROM partition)
+├── Archive Downloader.sh            launcher: the only file EmulationStation shows under Tools
+└── archive_downloader/
+    ├── archive_dl.py                the program
+    ├── archive_sources.example.conf template for the source list
+    ├── archive_auth.example.conf    template for the archive.org keys
+    ├── archive_sources.conf         yours: not versioned, never touched by the updater
+    ├── archive_auth.conf            yours: not versioned, never touched by the updater
+    └── archive_dl.log, cache/       created by the tool, not versioned
+```
+
+Everything but the launcher lives in `archive_downloader/`, so `Tools/` stays tidy next to the other tools. Before v1.6.0 all these files sat directly in `Tools/`.
+
 ## Quick install over Wi-Fi
 
 With the console on Wi-Fi and SSH on (dArkOS default: user `ark`, password `ark`), run this on a PC on the same network:
@@ -71,6 +87,8 @@ Some items hold one big `.zip` with the whole collection (e.g. `GBC.zip`, hundre
 
 ## On a PC
 
+Run these from `opt/system/Tools/` of this repository:
+
 ```
 python3 archive_downloader/archive_dl.py --tui --sd /media/$USER/<SD>
 python3 archive_downloader/archive_dl.py --list-sources
@@ -86,7 +104,7 @@ python3 archive_downloader/archive_dl.py <URL> --system gba --sd /media/$USER/<S
 
 ## archive.org login (restricted items)
 
-A few items (e.g. the full PortMaster pack `portmaster_ports_202405`) can only be downloaded by logged-in users: without a login archive.org answers 401/403 and the tool says "Login required". Public items work with or without a login.
+A few items (e.g. the full PortMaster pack `portmaster_ports_202405`) can only be downloaded by logged-in users: without a login archive.org answers 401/403 and the tool says "Login required" and shows the file to fill in (`archive_auth.conf`, see below). Public items work with or without a login.
 
 **Where to put the keys:** in `archive_auth.conf`, in the `archive_downloader` folder, next to `archive_dl.py`:
 
