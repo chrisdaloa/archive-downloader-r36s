@@ -23,6 +23,7 @@ import select
 import shutil
 import subprocess
 import sys
+import textwrap
 import time
 import urllib.error
 import urllib.parse
@@ -35,7 +36,7 @@ TOOLS = os.path.dirname(HERE)  # .../Tools, where "Archive Downloader.sh" lives
 DEFAULT_CONF = os.path.join(HERE, "archive_sources.conf")
 AUTH_CONF = os.path.join(HERE, "archive_auth.conf")
 DEFAULT_ES_CFG = "/etc/emulationstation/es_systems.cfg"
-VERSION = "1.6.0"  # bump on every change that should reach users through "Update tool..."
+VERSION = "1.6.2"  # bump on every change that should reach users through "Update tool..."
 USER_AGENT = "archive_dl/%s (dArkOS R36S)" % VERSION
 CHUNK = 1024 * 256
 DL_ATTEMPTS = 6  # per file, each one resuming from the .part
@@ -65,6 +66,12 @@ class Cancelled(Exception):
 # --------------------------------------------------------------------------
 # archive.org
 # --------------------------------------------------------------------------
+def login_required(name):
+    """Error telling which file to fill in (and where to get the keys) when archive.org wants a login."""
+    return Error("Login required for %s. Put your archive.org keys in %s (copy archive_auth.example.conf; "
+                 "keys at https://archive.org/account/s3.php)" % (name, AUTH_CONF))
+
+
 def auth_header(url):
     """archive.org S3 keys from archive_auth.conf, only for archive.org hosts (never sent elsewhere)."""
     host = urllib.parse.urlparse(url).hostname or ""
@@ -130,7 +137,7 @@ def list_zip_members(identifier, zipname):
             page = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
-            raise Error("Login required for %s: add your archive.org keys to archive_auth.conf" % zipname)
+            raise login_required(zipname)
         raise Error("Cannot read the zip index: %s" % e)
     except (urllib.error.URLError, OSError) as e:
         raise Error("Cannot read the zip index: %s" % e)
@@ -342,7 +349,7 @@ def download(identifier, entry, dest, on_progress=None, on_verify=None, on_wait=
             if e.code == 416 and have:  # already complete
                 break
             if e.code in (401, 403):
-                raise Error("Login required for %s: add your archive.org keys to archive_auth.conf" % entry["name"])
+                raise login_required(entry["name"])
             raise Error("HTTP %d while downloading %s" % (e.code, entry["name"]))
         except (urllib.error.URLError, OSError) as e:
             log("connect error on %s: %s (attempt %d)" % (entry["name"], e, attempt + 1))
@@ -793,8 +800,9 @@ def tui_menu(win, title, labels, footer=None):
 
 def tui_message(win, title, lines, wait=True):
     _frame(win, title, "Press any key" if wait else "")
-    h, _w = win.getmaxyx()
-    for i, line in enumerate(lines[:h - 3]):
+    h, w = win.getmaxyx()
+    wrapped = [part for line in lines for part in (textwrap.wrap(line, max(10, w - 4)) or [""])]
+    for i, line in enumerate(wrapped[:h - 3]):
         _put(win, 2 + i, 1, line)
     win.refresh()
     if wait:
